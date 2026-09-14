@@ -86,7 +86,10 @@ Transport router: Cloud / LAN / Gateway
 MIoT services and devices
 ```
 
-See the [architecture document](docs/architecture.md) for the module boundaries, authentication flow, routing policy, data model, error handling, and delivery plan.
+See the design documents for the module boundaries, authentication flow, routing policy, data model, error handling, and delivery plan:
+
+- [0001 SDK 架构设计](docs/0001-sdk-architecture.md)
+- [0002 CLI 与交付设计](docs/0002-cli-delivery.md)
 
 ## Planned Layout
 
@@ -96,7 +99,8 @@ See the [architecture document](docs/architecture.md) for the module boundaries,
 │   ├── miot-rs/        # Async Rust SDK
 │   └── miot/           # CLI
 ├── docs/
-│   └── architecture.md
+│   ├── 0001-sdk-architecture.md
+│   └── 0002-cli-delivery.md
 ├── examples/
 └── tests/
 ```
