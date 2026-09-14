@@ -9,9 +9,9 @@
 | `OAuthLoginClient` | `deps/ha_xiaomi_home` 的 `MIoTOauthClient` | OAuth 授权码 | `OAuthCredential` |
 | `CloudLoginClient` | `deps/hass-xiaomi-miot` 的 `MiotCloud` | 小米账号与密码 | `CloudCredential` |
 
-这两个 `struct` 没有共同的登录 trait、父类型或可互换的 `login` 返回值。它们仅可复用不包含协议语义的 HTTP client、时钟、随机数、URL 编解码与 `CredentialStore`。`OAuthCredential` 与 `CloudCredential` 是不同的私有字段集合，并分别写入 `oauth/<account>/<region>` 与 `cloud/<account>/<region>` 命名空间；一个凭据绝不能被当作另一个客户端的输入。
+这两个 `struct` 没有共同的登录 trait、父类型或可互换的 `login` 返回值。它们仅可复用不包含协议语义的 HTTP client、时钟、随机数与 URL 编解码。`OAuthCredential` 与 `CloudCredential` 是不同的私有字段集合；一个凭据绝不能被当作另一个客户端的输入。
 
-`MiotClient` 不持有账号密码，不暴露登录方法，也不保存登录过程状态。其构造参数应明确要求某一类已验证凭据或相应凭据提供者；云端 API 在首期支持哪些凭据类型，由各 transport 的构造函数显式声明。
+两个登录客户端只在内存中维护进行中的登录会话和挑战状态，成功时通过返回值交付 `OAuthCredential` 或 `CloudCredential`。它们不得写入文件、钥匙串、配置或任何其他持久化介质；本期 SDK 也不定义凭据存储抽象。`MiotClient` 不持有账号密码，不暴露登录方法，也不保存登录过程状态。其构造参数应明确要求调用方提供某一类已验证凭据；云端 API 在首期支持哪些凭据类型，由各 transport 的构造函数显式声明。
 
 ## OAuthLoginClient
 
@@ -32,7 +32,7 @@ impl OAuthLoginClient {
 }
 ```
 
-调用 `authorization_url` 后，客户端保存本次授权的 `state`、回调地址和有效期。`complete_callback` 必须先验证回调中的 `state`，再读取授权码并向 OAuth token 端点交换 `access_token`、`refresh_token` 和过期信息。回调被消费、过期或校验失败后，该临时状态立即失效，不能再次交换。刷新使用 `refresh_token`，并以新凭据原子替换旧凭据。
+调用 `authorization_url` 后，客户端仅在内存中保存本次授权的 `state`、回调地址和有效期。`complete_callback` 必须先验证回调中的 `state`，再读取授权码并向 OAuth token 端点交换 `access_token`、`refresh_token` 和过期信息。回调被消费、过期或校验失败后，该临时状态立即失效，不能再次交换。刷新使用 `refresh_token`，并以新的 `OAuthCredential` 返回给调用方；客户端不得替换任何外部存储中的旧凭据。
 
 CLI 的 OAuth 模式优先启动临时 loopback callback；无法监听端口时，可以让用户粘贴完整回调 URL。浏览器授权 URL、授权码和回调 URL 都可能包含敏感信息，不能写入日志或 JSON 输出。
 
@@ -61,16 +61,16 @@ impl CloudLoginClient {
 - 验证码挑战可以提供内存中的图片字节或一次性 challenge 标识，不能在日志或持久化配置中保存图片、cookie 或原始响应；
 - 挑战状态绑定到单个 `CloudLoginClient` 实例，完成、取消、超时或重试后必须清除。
 
-成功结果包含 `CloudCredential`，其中包括后续目标云 API 所需的服务 token、用户标识和协议安全字段（例如 `ssecurity`）。这些字段均使用秘密容器，序列化、`Debug`、`Display` 与 `tracing` 字段必须脱敏。账号密码仅用于当前登录或明确的重新登录，绝不写入 `CredentialStore`。
+成功结果包含 `CloudCredential`，其中包括后续目标云 API 所需的服务 token、用户标识和协议安全字段（例如 `ssecurity`）。这些字段均使用秘密容器，序列化、`Debug`、`Display` 与 `tracing` 字段必须脱敏。账号密码仅用于当前登录或明确的重新登录；登录客户端不得将账号密码或 `CloudCredential` 写入任何持久化介质。
 
-## 持久化、并发与错误
+## 生命周期、并发与错误
 
-凭据保存由调用者在登录成功后显式执行。保存实现必须使用原子替换；刷新或重新登录失败不得删除最后一个已验证凭据。OAuth 刷新以凭据键为粒度 single-flight；Cloud 登录和挑战续办以 `CloudLoginClient` 实例为粒度串行，避免 cookie 与挑战交叉污染。
+凭据只通过登录方法的返回值交付。SDK 不会保存、恢复或删除凭据；调用方若有持久化需求，必须在 SDK 外部自行处理返回结构体。OAuth 刷新以调用方的凭据实例为粒度 single-flight；Cloud 登录和挑战续办以 `CloudLoginClient` 实例为粒度串行，避免 cookie 与挑战交叉污染。
 
-错误至少区分 `Authentication`、`Authorization`、`VerificationRequired`、`CaptchaRequired`、`Network`、`Timeout`、`Protocol` 与 `CredentialStore`。错误消息可说明下一步操作，但不得包含账号、密码、cookie、授权码、refresh token、服务 token、`ssecurity`、完整回调 URL 或完整服务响应。
+错误至少区分 `Authentication`、`Authorization`、`VerificationRequired`、`CaptchaRequired`、`Network`、`Timeout` 与 `Protocol`。错误消息可说明下一步操作，但不得包含账号、密码、cookie、授权码、refresh token、服务 token、`ssecurity`、完整回调 URL 或完整服务响应。
 
 ## CLI 映射与验收
 
-`miot login oauth` 调用 `OAuthLoginClient`；`miot login cloud` 调用 `CloudLoginClient`。二者分别提示所需参数与挑战信息，成功后只输出账号的非敏感展示标识、区域和已保存的凭据类型。`miot logout` 必须要求目标凭据类型，或在无歧义时仅删除对应命名空间，不能默认删除另一个登录方式的凭据。
+`miot login oauth` 调用 `OAuthLoginClient`；`miot login cloud` 调用 `CloudLoginClient`。二者分别提示所需参数与挑战信息，并将成功结果交给 CLI 调用层；登录客户端本身不保存结果。CLI 是否持久化凭据不属于本期登录 SDK 的设计范围，且不得默认将秘密内容输出至终端或 JSON。
 
 首期验收覆盖 OAuth 的授权 URL、state 校验、授权码交换、刷新与刷新并发；以及 Cloud 的成功三段登录、错误密码、二次验证、验证码、服务 token 缺失和挑战清理。所有 fixture 必须脱敏，且测试必须断言 `Debug`、日志和 CLI JSON 中不出现任何秘密字段。

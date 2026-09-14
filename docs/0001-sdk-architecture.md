@@ -4,7 +4,7 @@
 
 本项目以 Rust 实现一套面向 MIoT 设备的异步 SDK，并提供基于该 SDK 的命令行工具。首期能力包括：
 
-- OAuth 登录、凭据保存和自动刷新；
+- OAuth 登录、返回凭据和自动刷新；
 - 列出设备、查询单个设备及其 MIoT Spec；
 - 读取和修改属性；
 - 监听属性变更及设备事件；
@@ -56,13 +56,13 @@ MIoT 设备与云服务
 
 ### 公共 SDK
 
-认证与设备控制是独立对象。`OAuthLoginClient` 和 `CloudLoginClient` 负责各自的登录协议；它们产出的凭据经 `CredentialStore` 保存。`MiotClient` 只接收已保存或显式提供的、与其 transport 相匹配的凭据，拥有设备目录、传输实例及后台订阅任务；它不负责启动浏览器、收集账号密码或执行登录协议。
+认证与设备控制是独立对象。`OAuthLoginClient` 和 `CloudLoginClient` 负责各自的登录协议，并返回对应的凭据结构体；它们不将 token、cookie 或其他凭据写入文件、钥匙串或任何持久化介质。`MiotClient` 只接收调用方显式提供的、与其 transport 相匹配的凭据，拥有设备目录、传输实例及后台订阅任务；它不负责启动浏览器、收集账号密码、执行登录协议或保存凭据。
 
 `MiotClient` 通过服务对象暴露设备能力：
 
 ```rust
 let client = MiotClient::builder()
-    .credential_source(credential_store)
+    .credentials(credentials)
     .transport_preference(TransportPreference::Auto)
     .build()
     .await?;
@@ -82,12 +82,12 @@ SDK package 名为 `miot-rs`，在 Rust 代码中以 `miot_rs` 导入。它以 `
 
 登录设计见 [0003：登录客户端设计](0003-login-client.md)。首期提供两个没有继承关系、没有共享登录状态的结构体：
 
-- `OAuthLoginClient`：对应 Xiaomi Home 的 OAuth 授权码登录，保存并刷新 OAuth access token 与 refresh token；
+- `OAuthLoginClient`：对应 Xiaomi Home 的 OAuth 授权码登录，返回并刷新 OAuth access token 与 refresh token；
 - `CloudLoginClient`：对应 Xiaomi Miot 的账号密码登录，维护小米账号登录所需的云端会话凭据。
 
-二者只共享底层 HTTP、时间、随机数和安全存储等基础设施；不得以统一的 `LoginSession`、枚举分支或 `MiotClient` 字段掩盖协议差异。各自凭据使用不同的类型和存储命名空间，禁止相互转换或回退。
+二者只共享底层 HTTP、时间与随机数等基础设施；不得以统一的 `LoginSession`、枚举分支或 `MiotClient` 字段掩盖协议差异。各自凭据使用不同的类型，禁止相互转换或回退。
 
-`CredentialStore` 是持久化抽象，默认实现使用操作系统钥匙串；文件实现仅在用户显式指定时启用。token、refresh token、账号密码、cookie、`ssecurity`、设备证书和私钥绝不输出至终端、调试日志或 JSON 结果。
+本期 SDK 不定义 `CredentialStore`，也不提供默认的凭据文件或钥匙串实现。调用方如需持久化，必须在 SDK 外部自行处理返回结构体，并自行承担加密、权限与生命周期管理。token、refresh token、账号密码、cookie、`ssecurity`、设备证书和私钥绝不输出至终端、调试日志或 JSON 结果。
 
 ### 设备目录与 Spec
 
