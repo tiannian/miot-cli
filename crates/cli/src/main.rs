@@ -14,6 +14,9 @@ use miot_rs::{
 use serde::Serialize;
 use url::Url;
 
+const HA_OAUTH_CLIENT_ID: &str = "2882303761520251711";
+const HA_OAUTH_REDIRECT_URL: &str = "http://homeassistant.local:8123";
+
 #[derive(Parser)]
 #[command(name = "miot", version, about = "MIoT command-line client")]
 struct Cli {
@@ -56,11 +59,11 @@ struct LoginArguments {
     #[arg(long, default_value = "xiaomiio")]
     sid: String,
     /// OAuth application client identifier.
-    #[arg(long, required_if_eq("oauth", "true"))]
-    client_id: Option<String>,
+    #[arg(long, default_value = HA_OAUTH_CLIENT_ID)]
+    client_id: String,
     /// OAuth redirect URL registered for the application.
-    #[arg(long, required_if_eq("oauth", "true"))]
-    redirect_url: Option<Url>,
+    #[arg(long, default_value = HA_OAUTH_REDIRECT_URL)]
+    redirect_url: Url,
     /// Space-separated OAuth scopes.
     #[arg(long, value_delimiter = ' ')]
     scope: Vec<String>,
@@ -162,17 +165,9 @@ async fn login_with_userpass(
 }
 
 async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
-    let client_id = arguments
-        .client_id
-        .as_deref()
-        .ok_or("--client-id is required with --oauth")?;
-    let redirect_url = arguments
-        .redirect_url
-        .clone()
-        .ok_or("--redirect-url is required with --oauth")?;
     let mut client = OAuthLoginClient::new(
-        client_id,
-        redirect_url,
+        &arguments.client_id,
+        arguments.redirect_url.clone(),
         &arguments.region,
         &arguments.device_id,
     )?;
@@ -190,7 +185,7 @@ async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box
         .complete_callback(Url::parse(callback.trim())?)
         .await?;
     Ok(LoginResult {
-        account_id: client_id.to_owned(),
+        account_id: arguments.client_id.clone(),
         credential: stored_oauth_credential(&credential)?,
     })
 }

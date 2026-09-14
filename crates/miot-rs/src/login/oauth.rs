@@ -8,7 +8,7 @@ use url::Url;
 use super::MiotError;
 
 const OAUTH_DOMAIN: &str = "oauth2.xiaomi.com";
-const AUTHORIZATION_PATH: &str = "/app/v2/ha/oauth/authorize";
+const AUTHORIZATION_URL: &str = "https://account.xiaomi.com/oauth2/authorize";
 const TOKEN_PATH: &str = "/app/v2/ha/oauth/get_token";
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
 
@@ -90,7 +90,8 @@ impl OAuthLoginClient {
         request: OAuthAuthorizationRequest,
     ) -> Result<Url, MiotError> {
         let state = random_state()?;
-        let mut url = self.oauth_url(AUTHORIZATION_PATH)?;
+        let mut url = Url::parse(AUTHORIZATION_URL)
+            .map_err(|_| MiotError::Protocol("invalid OAuth authorization endpoint"))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("redirect_uri", self.redirect_url.as_str());
