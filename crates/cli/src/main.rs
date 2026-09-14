@@ -64,6 +64,9 @@ struct LoginArguments {
     /// Space-separated OAuth scopes.
     #[arg(long, value_delimiter = ' ')]
     scope: Vec<String>,
+    /// Account identifier used as the credential file name.
+    #[arg(long)]
+    account: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -79,6 +82,11 @@ enum StoredCredential {
         service_token: String,
         ssecurity: String,
     },
+}
+
+struct LoginResult {
+    account_id: String,
+    credential: StoredCredential,
 }
 
 #[tokio::main]
@@ -102,16 +110,19 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
 }
 
 async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
-    let credential = if let Some(userpass) = arguments.userpass.clone() {
+    let mut result = if let Some(userpass) = arguments.userpass.clone() {
         login_with_userpass(&arguments, &userpass).await?
     } else {
         login_with_oauth(&arguments).await?
     };
-    let path = credential_path()?;
+    if let Some(account_id) = arguments.account {
+        result.account_id = account_id;
+    }
+    let path = credential_path(&result.account_id)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&path, serde_json::to_vec_pretty(&credential)?)?;
+    fs::write(&path, serde_json::to_vec_pretty(&result.credential)?)?;
     println!("Login succeeded. Credential saved to {}.", path.display());
     Ok(())
 }
@@ -119,7 +130,7 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
 async fn login_with_userpass(
     arguments: &LoginArguments,
     userpass: &str,
-) -> Result<StoredCredential, Box<dyn Error>> {
+) -> Result<LoginResult, Box<dyn Error>> {
     let (account, password) = userpass
         .split_once(':')
         .ok_or("--userpass must be in USERNAME:PASSWORD format")?;
@@ -135,10 +146,13 @@ async fn login_with_userpass(
         })
         .await?
     {
-        CloudLoginOutcome::Success(credential) => Ok(StoredCredential::Cloud {
-            user_id: credential.user_id().to_owned(),
-            service_token: credential.service_token().to_owned(),
-            ssecurity: credential.ssecurity().to_owned(),
+        CloudLoginOutcome::Success(credential) => Ok(LoginResult {
+            account_id: credential.user_id().to_owned(),
+            credential: StoredCredential::Cloud {
+                user_id: credential.user_id().to_owned(),
+                service_token: credential.service_token().to_owned(),
+                ssecurity: credential.ssecurity().to_owned(),
+            },
         }),
         CloudLoginOutcome::VerificationRequired { url } => {
             Err(format!("account verification is required: {url}").into())
@@ -147,7 +161,7 @@ async fn login_with_userpass(
     }
 }
 
-async fn login_with_oauth(arguments: &LoginArguments) -> Result<StoredCredential, Box<dyn Error>> {
+async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
     let client_id = arguments
         .client_id
         .as_deref()
@@ -175,7 +189,10 @@ async fn login_with_oauth(arguments: &LoginArguments) -> Result<StoredCredential
     let credential = client
         .complete_callback(Url::parse(callback.trim())?)
         .await?;
-    stored_oauth_credential(&credential)
+    Ok(LoginResult {
+        account_id: client_id.to_owned(),
+        credential: stored_oauth_credential(&credential)?,
+    })
 }
 
 fn stored_oauth_credential(
@@ -191,7 +208,27 @@ fn stored_oauth_credential(
     })
 }
 
-fn credential_path() -> Result<PathBuf, Box<dyn Error>> {
+fn credential_path(account_id: &str) -> Result<PathBuf, Box<dyn Error>> {
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".local/miot.rs"))
+    Ok(PathBuf::from(home)
+        .join(".local/miot.rs/accounts")
+        .join(format!("{}.json", filename_component(account_id))))
+}
+
+fn filename_component(value: &str) -> String {
+    let component: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if component.is_empty() {
+        "account".to_owned()
+    } else {
+        component
+    }
 }
