@@ -1,4 +1,4 @@
-//! Async SDK primitives for MIoT devices.
+//! Async SDK primitives for `MIoT` devices.
 //!
 //! Protocol clients and services will be added incrementally. The CLI crate
 //! depends on this crate instead of accessing protocol implementations directly.
