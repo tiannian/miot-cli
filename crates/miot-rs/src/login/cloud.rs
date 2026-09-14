@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use base64::Engine;
 use md5::{Digest, Md5};
-use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use sha1::Sha1;
 use url::Url;
@@ -17,18 +16,18 @@ const ACCOUNT_BASE: &str = "https://account.xiaomi.com";
 #[derive(Clone, Debug)]
 pub struct CloudLoginRequest {
     pub account: String,
-    pub password: SecretString,
+    pub password: String,
 }
 
 /// A verification ticket obtained by the user outside this SDK.
 #[derive(Clone, Debug)]
 pub struct VerificationProof {
-    ticket: SecretString,
+    ticket: String,
 }
 
 impl VerificationProof {
     #[must_use]
-    pub fn new(ticket: SecretString) -> Self {
+    pub fn new(ticket: String) -> Self {
         Self { ticket }
     }
 }
@@ -44,8 +43,8 @@ pub struct CaptchaChallenge {
 #[derive(Clone, Debug)]
 pub struct CloudCredential {
     user_id: String,
-    service_token: SecretString,
-    ssecurity: SecretString,
+    service_token: String,
+    ssecurity: String,
 }
 
 impl CloudCredential {
@@ -54,11 +53,11 @@ impl CloudCredential {
         &self.user_id
     }
     #[must_use]
-    pub fn service_token(&self) -> &SecretString {
+    pub fn service_token(&self) -> &str {
         &self.service_token
     }
     #[must_use]
-    pub fn ssecurity(&self) -> &SecretString {
+    pub fn ssecurity(&self) -> &str {
         &self.ssecurity
     }
 }
@@ -84,7 +83,7 @@ pub struct CloudLoginClient {
 #[derive(Debug)]
 struct PendingLogin {
     account: String,
-    password: SecretString,
+    password: String,
     context: LoginContext,
     captcha_ick: Option<String>,
 }
@@ -132,7 +131,7 @@ impl CloudLoginClient {
         &mut self,
         request: CloudLoginRequest,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        if request.account.is_empty() || request.password.expose_secret().is_empty() {
+        if request.account.is_empty() || request.password.is_empty() {
             return Err(MiotError::InvalidInput(
                 "account and password must not be empty",
             ));
@@ -163,7 +162,7 @@ impl CloudLoginClient {
             .form(&[
                 ("user", pending.account.as_str()),
                 ("sid", pending.context.sid.as_str()),
-                ("ticket", proof.ticket.expose_secret()),
+                ("ticket", &proof.ticket),
             ])
             .send()
             .await?;
@@ -172,12 +171,12 @@ impl CloudLoginClient {
 
     pub async fn submit_captcha(
         &mut self,
-        captcha: SecretString,
+        captcha: String,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        if captcha.expose_secret().is_empty() {
+        if captcha.is_empty() {
             return Err(MiotError::InvalidInput("captcha must not be empty"));
         }
-        self.authenticate(Some(captcha.expose_secret())).await
+        self.authenticate(Some(&captcha)).await
     }
 
     async fn fetch_context(&self) -> Result<LoginContext, MiotError> {
@@ -212,10 +211,7 @@ impl CloudLoginClient {
             .pending
             .as_ref()
             .ok_or(MiotError::Protocol("no active cloud login"))?;
-        let password_hash = format!(
-            "{:X}",
-            Md5::digest(pending.password.expose_secret().as_bytes())
-        );
+        let password_hash = format!("{:X}", Md5::digest(pending.password.as_bytes()));
         let mut form = vec![
             ("user", pending.account.as_str()),
             ("hash", password_hash.as_str()),
@@ -267,8 +263,8 @@ impl CloudLoginClient {
             ))?;
             return Ok(CloudLoginOutcome::Success(CloudCredential {
                 user_id,
-                service_token: SecretString::from(token),
-                ssecurity: SecretString::from(ssecurity),
+                service_token: token,
+                ssecurity,
             }));
         }
         if let Some(notification) = auth.notification_url {

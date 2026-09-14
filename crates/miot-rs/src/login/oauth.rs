@@ -2,7 +2,6 @@
 
 use std::time::{Duration, SystemTime};
 
-use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use url::Url;
 
@@ -20,21 +19,21 @@ pub struct OAuthAuthorizationRequest {
     pub skip_confirm: bool,
 }
 
-/// OAuth tokens returned by Xiaomi. Secret fields do not implement revealing formatting.
+/// OAuth tokens returned by Xiaomi.
 #[derive(Clone, Debug)]
 pub struct OAuthCredential {
-    access_token: SecretString,
-    refresh_token: SecretString,
+    access_token: String,
+    refresh_token: String,
     expires_at: SystemTime,
 }
 
 impl OAuthCredential {
     #[must_use]
-    pub fn access_token(&self) -> &SecretString {
+    pub fn access_token(&self) -> &str {
         &self.access_token
     }
     #[must_use]
-    pub fn refresh_token(&self) -> &SecretString {
+    pub fn refresh_token(&self) -> &str {
         &self.refresh_token
     }
     #[must_use]
@@ -145,7 +144,7 @@ impl OAuthLoginClient {
         &self,
         credential: &OAuthCredential,
     ) -> Result<OAuthCredential, MiotError> {
-        self.token([("refresh_token", credential.refresh_token.expose_secret())])
+        self.token([("refresh_token", &credential.refresh_token)])
             .await
     }
 
@@ -179,8 +178,8 @@ impl OAuthLoginClient {
             return Err(MiotError::Protocol("OAuth token response is incomplete"));
         }
         Ok(OAuthCredential {
-            access_token: SecretString::from(token.access_token),
-            refresh_token: SecretString::from(token.refresh_token),
+            access_token: token.access_token,
+            refresh_token: token.refresh_token,
             expires_at: SystemTime::now() + Duration::from_secs(token.expires_in),
         })
     }
