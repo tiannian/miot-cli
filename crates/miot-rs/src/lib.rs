@@ -3,6 +3,13 @@
 //! Protocol clients and services will be added incrementally. The CLI crate
 //! depends on this crate instead of accessing protocol implementations directly.
 
+pub mod login;
+
+pub use login::{
+    CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
+    MiotError, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, VerificationProof,
+};
+
 /// Returns the SDK version compiled into the current binary.
 #[must_use]
 pub const fn version() -> &'static str {
