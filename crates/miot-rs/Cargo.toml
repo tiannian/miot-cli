@@ -1,0 +1,14 @@
+[package]
+name = "miot-rs"
+version = "0.1.0"
+description = "Asynchronous Rust SDK for MIoT devices"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+

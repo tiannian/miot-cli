@@ -1,0 +1,19 @@
+[package]
+name = "miot"
+version = "0.1.0"
+description = "Command-line interface for MIoT devices"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "miot"
+path = "src/main.rs"
+
+[dependencies]
+miot-rs = { path = "../miot-rs", version = "0.1.0" }
+

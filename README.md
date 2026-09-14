@@ -1,15 +1,15 @@
 # miot-cli
 
-`miot-cli` is a Rust-based command-line tool and asynchronous SDK for MIoT devices. It provides a unified interface for authentication, device discovery, property reads and writes, device-state subscriptions, and MIoT action invocation.
+`miot-cli` 是一个面向 MIoT 设备的 Rust 命令行工具及异步 SDK。项目计划提供认证、设备发现、属性读写、设备状态订阅与 MIoT Action 调用等能力。
 
-The repository has two crates:
+当前已初始化 Rust workspace，包含两个 crate：
 
-- `miot-rs`: an asynchronous Rust SDK for embedding in applications. Its Rust crate name is `miot_rs`;
-- `miot`: a CLI built as a thin layer on top of `miot-rs`, suitable for terminals, scripts, and automation.
+- `crates/miot-rs`：可嵌入应用的异步 SDK；Rust 中通过 `miot_rs` 导入；
+- `crates/cli`：包和二进制名均为 `miot` 的命令行工具，只依赖 `miot-rs` 的公共 API。
 
-> The project is currently in its architecture and bootstrap phase. The commands and APIs below describe the intended public interface; they are not all implemented yet.
+> 项目当前处于引导阶段。以下命令与 API 是计划中的公共接口，尚未全部实现。
 
-## Planned Features
+## 计划能力
 
 - OAuth login, automatic token refresh, and secure credential storage;
 - Home and device discovery, device details, and MIoT Spec lookup;
@@ -18,7 +18,7 @@ The repository has two crates:
 - MIoT action invocation;
 - Unified routing across cloud, local LAN, and central-hub transports.
 
-## CLI Examples
+## CLI 示例
 
 ```bash
 # Sign in
@@ -44,7 +44,7 @@ miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 
 Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 
-## SDK Example
+## SDK 示例
 
 ```rust,no_run
 use miot_rs::{MiotClient, PropertyId, TransportPreference};
@@ -72,9 +72,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Architecture
+## 架构
 
-The repository is a Rust workspace. The SDK contains the implementation; the CLI only consumes the SDK's public API.
+仓库是 Rust workspace。SDK 承载实现；CLI 只消费 SDK 的公共 API。
 
 ```text
 CLI / Rust application
@@ -86,18 +86,18 @@ Transport router: Cloud / LAN / Gateway
 MIoT services and devices
 ```
 
-See the design documents for the module boundaries, authentication flow, routing policy, data model, error handling, and delivery plan:
+模块边界、认证流程、路由策略、数据模型、错误处理与交付计划见设计文档：
 
 - [0001 SDK 架构设计](docs/0001-sdk-architecture.md)
 - [0002 CLI 与交付设计](docs/0002-cli-delivery.md)
 
-## Planned Layout
+## 当前目录结构
 
 ```text
 .
 ├── crates/
-│   ├── miot-rs/        # Async Rust SDK
-│   └── miot/           # CLI
+│   ├── miot-rs/        # 异步 Rust SDK
+│   └── cli/            # miot CLI
 ├── docs/
 │   ├── 0001-sdk-architecture.md
 │   └── 0002-cli-delivery.md
@@ -105,16 +105,16 @@ See the design documents for the module boundaries, authentication flow, routing
 └── tests/
 ```
 
-## Delivery Plan
+## 交付计划
 
-1. Create the workspace, public data model, and error model.
-2. Implement OAuth, credential storage, cloud device discovery, and Spec lookup.
-3. Implement cloud property access, actions, and subscriptions as the MVP.
-4. Add LAN and central-hub transports incrementally.
+1. 建立 workspace、公共数据模型与错误体系。
+2. 实现 OAuth、凭据处理、云端设备发现与 Spec 查询。
+3. 实现云端属性访问、Action 和订阅，形成 MVP。
+4. 逐步加入 LAN 与中央网关 transport。
 
-## Development Checks
+## 开发检查
 
-Once implementation begins, run the following before committing:
+提交前运行：
 
 ```bash
 cargo fmt --check

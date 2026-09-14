@@ -1,0 +1,18 @@
+//! Async SDK primitives for MIoT devices.
+//!
+//! Protocol clients and services will be added incrementally. The CLI crate
+//! depends on this crate instead of accessing protocol implementations directly.
+
+/// Returns the SDK version compiled into the current binary.
+#[must_use]
+pub const fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn exposes_its_package_version() {
+        assert_eq!(super::version(), env!("CARGO_PKG_VERSION"));
+    }
+}
