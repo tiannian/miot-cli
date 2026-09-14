@@ -1,53 +1,53 @@
 # miot-cli
 
-`miot-cli` 是一个使用 Rust 编写的 MIoT 命令行工具与异步 SDK。它提供统一的设备访问接口，用于登录、发现设备、读取和修改属性、监听设备状态，以及执行 MIoT Action。
+`miot-cli` is a Rust-based command-line tool and asynchronous SDK for MIoT devices. It provides a unified interface for authentication, device discovery, property reads and writes, device-state subscriptions, and MIoT action invocation.
 
-项目由两部分组成：
+The repository has two crates:
 
-- `miot-sdk`：供 Rust 应用嵌入使用的异步 SDK；
-- `miot`：基于 SDK 的命令行工具，适用于终端、脚本和自动化流程。
+- `miot-rs`: an asynchronous Rust SDK for embedding in applications. Its Rust crate name is `miot_rs`;
+- `miot`: a CLI built as a thin layer on top of `miot-rs`, suitable for terminals, scripts, and automation.
 
-> 项目目前处于架构与初始化阶段，以下命令和 API 是目标接口，尚未全部实现。
+> The project is currently in its architecture and bootstrap phase. The commands and APIs below describe the intended public interface; they are not all implemented yet.
 
-## 计划功能
+## Planned Features
 
-- OAuth 登录、token 自动刷新与安全凭据保存；
-- 查询家庭及设备列表、设备详情和 MIoT Spec；
-- 读取、写入 MIoT 属性；
-- 监听属性变更、设备事件与在线状态；
-- 执行 MIoT Action；
-- 在云端、局域网和中央网关控制方式之间统一路由。
+- OAuth login, automatic token refresh, and secure credential storage;
+- Home and device discovery, device details, and MIoT Spec lookup;
+- MIoT property reads and writes;
+- Property-change, device-event, and availability subscriptions;
+- MIoT action invocation;
+- Unified routing across cloud, local LAN, and central-hub transports.
 
-## CLI 使用示例
+## CLI Examples
 
 ```bash
-# 登录
+# Sign in
 miot login --region cn
 
-# 列出设备
+# List devices
 miot devices list
 
-# 获取设备详情和能力描述
+# Inspect a device and its capabilities
 miot devices get <did>
 miot spec get <did>
 
-# 读取或修改属性
+# Read or write a property
 miot props get <did> <siid> <piid>
 miot props set <did> <siid> <piid> --value true
 
-# 持续监听属性变化（NDJSON 输出）
+# Stream property updates as NDJSON
 miot props watch <did> --siid 2 --piid 1
 
-# 执行设备动作
+# Invoke a device action
 miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 ```
 
-读取类命令将支持 `--format table|json|yaml`；监听命令默认输出 NDJSON，方便通过 `jq` 或 shell 管道处理。
+Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 
-## SDK 使用示例
+## SDK Example
 
 ```rust,no_run
-use miot_sdk::{MiotClient, PropertyId, TransportPreference};
+use miot_rs::{MiotClient, PropertyId, TransportPreference};
 use serde_json::json;
 
 #[tokio::main]
@@ -72,46 +72,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 架构
+## Architecture
 
-项目采用 Rust workspace，SDK 是核心，CLI 仅封装 SDK 的公共 API：
+The repository is a Rust workspace. The SDK contains the implementation; the CLI only consumes the SDK's public API.
 
 ```text
-CLI / Rust 应用
+CLI / Rust application
        │
-miot-sdk
+miot-rs
        │
-传输路由：Cloud / LAN / Gateway
+Transport router: Cloud / LAN / Gateway
        │
-MIoT 服务与设备
+MIoT services and devices
 ```
 
-完整的模块划分、认证流程、路由策略、数据模型、错误处理与实施路线见[架构设计](docs/architecture.md)。
+See the [architecture document](docs/architecture.md) for the module boundaries, authentication flow, routing policy, data model, error handling, and delivery plan.
 
-## 规划目录
+## Planned Layout
 
 ```text
 .
 ├── crates/
-│   ├── miot-sdk/       # 异步 Rust SDK
-│   ├── miot-protocol/  # 协议数据结构和编解码
-│   └── miot-cli/       # CLI
+│   ├── miot-rs/        # Async Rust SDK
+│   └── miot/           # CLI
 ├── docs/
 │   └── architecture.md
 ├── examples/
 └── tests/
 ```
 
-## 开发计划
+## Delivery Plan
 
-1. 初始化 workspace、公共数据模型和错误体系；
-2. 完成 OAuth、凭据保存、云端设备与 Spec 查询；
-3. 完成云端属性读写、Action 和订阅，形成 MVP；
-4. 逐步增加 LAN 和中央网关 transport。
+1. Create the workspace, public data model, and error model.
+2. Implement OAuth, credential storage, cloud device discovery, and Spec lookup.
+3. Implement cloud property access, actions, and subscriptions as the MVP.
+4. Add LAN and central-hub transports incrementally.
 
-## 开发规范
+## Development Checks
 
-实现开始后，提交前应运行：
+Once implementation begins, run the following before committing:
 
 ```bash
 cargo fmt --check

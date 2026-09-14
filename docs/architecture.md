@@ -25,9 +25,8 @@ CLI 是 SDK 的薄适配层：所有业务逻辑、传输选择和数据模型�
 miot-cli/
 ├── Cargo.toml
 ├── crates/
-│   ├── miot-sdk/                 # 对外发布的异步 Rust SDK
-│   ├── miot-protocol/            # MIoT DTO、协议常量、编解码
-│   └── miot-cli/                 # clap CLI，依赖 miot-sdk
+│   ├── miot-rs/                  # 对外发布的异步 Rust SDK
+│   └── miot/                     # clap CLI，依赖 miot-rs
 ├── docs/
 │   └── architecture.md
 ├── examples/
@@ -37,14 +36,14 @@ miot-cli/
     └── fixtures/                 # 脱敏的 API、MQTT、Spec 录制数据
 ```
 
-`miot-protocol` 不暴露网络客户端，仅负责可序列化的数据结构、请求/响应格式和验证规则。`miot-sdk` 负责认证、网络、路由、状态和公共 API。`miot-cli` 不应绕过 SDK 调用任何协议层接口。
+`miot-rs` 负责协议数据结构、认证、网络、路由、状态和公共 API。`miot` 不应绕过 SDK 调用任何协议层接口。若协议数据模型未来需要拆分，仍应作为 `miot-rs` 的内部模块，避免在首期扩大公共 crate 边界。
 
 ## 分层设计
 
 ```text
 CLI / 用户应用
        │
-miot-sdk 公共 API：Client、DeviceService、PropertyService、ActionService
+miot-rs 公共 API：Client、DeviceService、PropertyService、ActionService
        │
 路由层：Auto / CloudOnly / LanOnly / GatewayOnly
        │
@@ -73,7 +72,7 @@ let output = client.actions()
     .await?;
 ```
 
-SDK 以 `tokio` 为运行时，以 `Result<T, MiotError>` 返回可分类错误。长期运行的订阅使用 `Stream<Item = Result<DeviceEvent, MiotError>>`，调用者可自行决定重连、过滤与消费节奏。
+SDK package 名为 `miot-rs`，在 Rust 代码中以 `miot_rs` 导入。它以 `tokio` 为运行时，以 `Result<T, MiotError>` 返回可分类错误。长期运行的订阅使用 `Stream<Item = Result<DeviceEvent, MiotError>>`，调用者可自行决定重连、过滤与消费节奏。
 
 ### 认证与凭据
 
@@ -171,8 +170,7 @@ miot actions invoke <did> <siid> <aiid> [--input <json-array>]
 
 ## 测试策略
 
-- `miot-protocol`：请求、响应、签名和 Spec 解析的单元测试；
-- `miot-sdk`：以 mock HTTP/MQTT server 覆盖 token 刷新、路由回退、重连和错误映射；
+- `miot-rs`：请求、响应、签名和 Spec 解析的单元测试，并以 mock HTTP/MQTT server 覆盖 token 刷新、路由回退、重连和错误映射；
 - fixtures：只提交脱敏录制数据，禁止提交真实 token、did、证书、家庭或网络信息；
 - CLI：用快照测试验证 table/JSON/NDJSON 输出和退出码；
 - 集成测试：通过环境变量注入专用测试账户，默认不运行并标注为 `#[ignore]`。
