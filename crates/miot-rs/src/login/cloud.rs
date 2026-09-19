@@ -324,11 +324,19 @@ impl CloudLoginClient {
         &mut self,
         response: reqwest::Response,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        let password_md5 = self
+            .pending
+            .as_ref()
+            .map(|pending| format!("{:X}", Md5::digest(pending.password.as_bytes())));
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
             self.pending = None;
-            return Err(authentication_response(status, &body));
+            return Err(authentication_response_with_password_md5(
+                status,
+                &body,
+                password_md5,
+            ));
         }
         let auth: AuthResponse = decode_json(&body)?;
         if let Some(location) = auth.location {
@@ -369,7 +377,11 @@ impl CloudLoginClient {
             }
         }
         self.pending = None;
-        Err(authentication_response(status, &body))
+        Err(authentication_response_with_password_md5(
+            status,
+            &body,
+            password_md5,
+        ))
     }
 
     fn account_url(path: &str) -> Result<Url, MiotError> {
@@ -523,6 +535,14 @@ fn now_millis() -> String {
 }
 
 fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
+    authentication_response_with_password_md5(status, body, None)
+}
+
+fn authentication_response_with_password_md5(
+    status: reqwest::StatusCode,
+    body: &str,
+    password_md5: Option<String>,
+) -> MiotError {
     let body = body.trim_start_matches("&&&START&&&");
     let value = serde_json::from_str::<serde_json::Value>(body).ok();
     let code = value
@@ -534,6 +554,7 @@ fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError
         status: status.as_u16(),
         code,
         response: response.chars().take(4096).collect(),
+        password_md5,
     }
 }
 

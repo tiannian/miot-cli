@@ -20,6 +20,7 @@ pub enum MiotError {
         status: u16,
         code: Option<i64>,
         response: String,
+        password_md5: Option<String>,
     },
     Authorization,
     AuthorizationResponse {
@@ -41,16 +42,21 @@ impl fmt::Display for MiotError {
                 status,
                 code,
                 response,
+                password_md5,
             } => {
+                let digest = password_md5
+                    .as_deref()
+                    .map(|digest| format!("; password_md5: {digest}"))
+                    .unwrap_or_default();
                 if let Some(code) = code {
                     return write!(
                         formatter,
-                        "authentication failed (HTTP {status}, server code {code}): {response}"
+                        "authentication failed (HTTP {status}, server code {code}): {response}{digest}"
                     );
                 }
                 return write!(
                     formatter,
-                    "authentication failed (HTTP {status}): {response}"
+                    "authentication failed (HTTP {status}): {response}{digest}"
                 );
             }
             Self::Authorization => "authorization failed",
