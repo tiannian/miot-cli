@@ -225,7 +225,10 @@ impl CloudLoginClient {
                 self.pending = None;
                 return Err(authentication_response(status, &body));
             }
-            let location = verified.location.ok_or(MiotError::Authentication)?;
+            let location = verified
+                .location
+                .filter(|location| !location.is_empty())
+                .ok_or(MiotError::Authentication)?;
             let initial = self.client.get(location).send().await?;
             let initial_status = initial.status();
             let initial_url = initial.url().clone();
@@ -244,7 +247,10 @@ impl CloudLoginClient {
                 }
             }
             let context = self.fetch_context().await?;
-            let location = context.location.ok_or(MiotError::Authentication)?;
+            let location = context
+                .location
+                .filter(|location| !location.is_empty())
+                .ok_or(MiotError::Authentication)?;
             return self
                 .finish_location(location, context.ssecurity, context.user_id, None)
                 .await;
@@ -348,19 +354,19 @@ impl CloudLoginClient {
             ));
         }
         let auth: AuthResponse = decode_json(&body)?;
-        if let Some(location) = auth.location {
+        if let Some(location) = auth.location.filter(|location| !location.is_empty()) {
             return self
                 .finish_location(location, auth.ssecurity, auth.user_id, auth.nonce)
                 .await;
         }
-        if let Some(notification) = auth.notification_url {
+        if let Some(notification) = auth.notification_url.filter(|url| !url.is_empty()) {
             let url = Self::absolute_url(&notification)?;
             if let Some(pending) = &mut self.pending {
                 pending.verification_url = Some(url.clone());
             }
             return Ok(CloudLoginOutcome::VerificationRequired { url });
         }
-        if let Some(captcha) = auth.captcha_url {
+        if let Some(captcha) = auth.captcha_url.filter(|url| !url.is_empty()) {
             let url = Self::absolute_url(&captcha)?;
             let image_response = self.client.get(url.clone()).send().await?;
             let ick = cookie_value(image_response.headers(), "ick");
