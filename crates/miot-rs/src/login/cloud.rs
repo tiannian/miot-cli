@@ -192,6 +192,12 @@ impl CloudLoginClient {
             self.pending = None;
             return Err(authentication_response(identity_status, &identity_body));
         }
+        if let Some(identity_session) = identity_session {
+            self.jar.add_cookie_str(
+                &format!("identity_session={identity_session}"),
+                &Self::account_url("/")?,
+            );
+        }
         let identity: IdentityListResponse = decode_json(&identity_body)?;
         let options = identity
             .options
