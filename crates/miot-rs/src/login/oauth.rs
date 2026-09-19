@@ -3,6 +3,7 @@
 use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use super::MiotError;
@@ -83,7 +84,7 @@ impl OAuthLoginClient {
             client_id,
             redirect_url,
             region,
-            device_id: format!("ha.{device_id}"),
+            device_id: home_assistant_device_id(&device_id),
             pending: None,
         })
     }
@@ -247,6 +248,11 @@ fn random_state() -> Result<String, MiotError> {
     ))
 }
 
+fn home_assistant_device_id(identifier: &str) -> String {
+    let digest = Sha256::digest(identifier.as_bytes());
+    format!("ha.{digest:x}")[..35].to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,7 +301,10 @@ mod tests {
             .into_owned()
             .collect();
 
-        assert_eq!(query.get("device_id"), Some(&"ha.device-id".to_owned()));
+        assert_eq!(
+            query.get("device_id"),
+            Some(&"ha.bd732105ef89cf8edd2606a5309c8a26".to_owned())
+        );
         assert_eq!(
             query.get("client_id"),
             Some(&"2882303761520251711".to_owned())
