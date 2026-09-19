@@ -178,7 +178,7 @@ async fn login_with_userpass(
         account: account.to_owned(),
         password: password.to_owned(),
     };
-    let mut outcome = client.login(request.clone()).await?;
+    let mut outcome = client.login(request).await?;
     loop {
         match outcome {
             CloudLoginOutcome::Success(credential) => {
@@ -194,17 +194,20 @@ async fn login_with_userpass(
             }
             CloudLoginOutcome::VerificationRequired { url } => {
                 println!(
-                    "Open this page and complete the required verification. Paste an SMS or email code below, or press Enter after confirming in the browser or on an already signed-in device to retry login."
+                    "Open this page and complete the required verification. Paste an SMS or email code below. Already signed-in device confirmation requires a dedicated continuation flow and cannot be completed by retrying this login."
                 );
                 println!("{url}");
-                match read_optional_line("ticket (or press Enter to retry)> ")? {
+                match read_optional_line("ticket (or press Enter to cancel)> ")? {
                     Some(ticket) => {
                         outcome = client
                             .continue_verification(VerificationProof::new(ticket))
                             .await?;
                     }
                     None => {
-                        outcome = client.login(request.clone()).await?;
+                        return Err(
+                            "device-confirmation continuation is not implemented; retrying login would discard the active verification transaction"
+                                .into(),
+                        );
                     }
                 }
             }
