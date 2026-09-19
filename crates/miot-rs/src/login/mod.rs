@@ -15,8 +15,16 @@ use std::{error::Error, fmt};
 #[derive(Debug)]
 pub enum MiotError {
     Authentication,
+    AuthenticationResponse {
+        status: u16,
+        code: Option<i64>,
+        response: String,
+    },
     Authorization,
-    AuthorizationResponse { code: i64, message: String },
+    AuthorizationResponse {
+        code: i64,
+        message: String,
+    },
     VerificationRequired,
     CaptchaRequired,
     Network(reqwest::Error),
@@ -28,6 +36,22 @@ impl fmt::Display for MiotError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::Authentication => "authentication failed",
+            Self::AuthenticationResponse {
+                status,
+                code,
+                response,
+            } => {
+                if let Some(code) = code {
+                    return write!(
+                        formatter,
+                        "authentication failed (HTTP {status}, server code {code}): {response}"
+                    );
+                }
+                return write!(
+                    formatter,
+                    "authentication failed (HTTP {status}): {response}"
+                );
+            }
             Self::Authorization => "authorization failed",
             Self::AuthorizationResponse { code, message } => {
                 return write!(

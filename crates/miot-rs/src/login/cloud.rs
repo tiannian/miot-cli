@@ -173,13 +173,14 @@ impl CloudLoginClient {
             .as_str()
             .replace("fe/service/identity/authStart", "identity/list");
         let identity_response = self.client.get(identity_url).send().await?;
-        if !identity_response.status().is_success()
-            || cookie_value(identity_response.headers(), "identity_session").is_none()
-        {
+        let identity_status = identity_response.status();
+        let identity_session = cookie_value(identity_response.headers(), "identity_session");
+        let identity_body = identity_response.text().await?;
+        if !identity_status.is_success() || identity_session.is_none() {
             self.pending = None;
-            return Err(MiotError::Authentication);
+            return Err(authentication_response(identity_status, &identity_body));
         }
-        let identity: IdentityListResponse = decode_json(&identity_response.text().await?)?;
+        let identity: IdentityListResponse = decode_json(&identity_body)?;
         let options = identity
             .options
             .unwrap_or_else(|| vec![identity.flag.unwrap_or(4)]);
@@ -201,12 +202,16 @@ impl CloudLoginClient {
                 ])
                 .send()
                 .await?;
-            if !response.status().is_success() {
-                continue;
+            let status = response.status();
+            let body = response.text().await?;
+            if !status.is_success() {
+                self.pending = None;
+                return Err(authentication_response(status, &body));
             }
-            let verified: VerificationResponse = decode_json(&response.text().await?)?;
+            let verified: VerificationResponse = decode_json(&body)?;
             if verified.code != 0 {
-                continue;
+                self.pending = None;
+                return Err(authentication_response(status, &body));
             }
             let location = verified.location.ok_or(MiotError::Authentication)?;
             let initial = self.client.get(location).send().await?;
@@ -238,13 +243,14 @@ impl CloudLoginClient {
             .query(&[("sid", self.sid.as_str()), ("_json", "true")])
             .send()
             .await?;
-        if !response.status().is_success() {
-            return Err(MiotError::Protocol("cloud login context request failed"));
-        }
+        let status = response.status();
         let body = response.text().await?;
+        if !status.is_success() {
+            return Err(authentication_response(status, &body));
+        }
         let value: ServiceLogin = decode_json(&body)?;
         if value.code != 0 {
-            return Err(MiotError::Authentication);
+            return Err(authentication_response(status, &body));
         }
         Ok(LoginContext {
             callback: value.callback.unwrap_or_default(),
@@ -295,11 +301,12 @@ impl CloudLoginClient {
         &mut self,
         response: reqwest::Response,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        if !response.status().is_success() {
-            self.pending = None;
-            return Err(MiotError::Authentication);
-        }
+        let status = response.status();
         let body = response.text().await?;
+        if !status.is_success() {
+            self.pending = None;
+            return Err(authentication_response(status, &body));
+        }
         let auth: AuthResponse = decode_json(&body)?;
         if let Some(location) = auth.location {
             return self
@@ -329,7 +336,7 @@ impl CloudLoginClient {
             }));
         }
         self.pending = None;
-        Err(MiotError::Authentication)
+        Err(authentication_response(status, &body))
     }
 
     fn account_url(path: &str) -> Result<Url, MiotError> {
@@ -354,12 +361,12 @@ impl CloudLoginClient {
             .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
         let location = self.add_client_sign(location, ssecurity.as_deref())?;
         let final_response = self.client.get(location).send().await?;
-        let token = cookie_value(final_response.headers(), "serviceToken")
-            .or(initial_token)
-            .ok_or(MiotError::Authentication)?;
-        let user_id = cookie_value(final_response.headers(), "userId")
-            .or(user_id)
-            .unwrap_or(pending.account);
+        let status = final_response.status();
+        let token = cookie_value(final_response.headers(), "serviceToken").or(initial_token);
+        let response_user_id = cookie_value(final_response.headers(), "userId");
+        let body = final_response.text().await?;
+        let token = token.ok_or_else(|| authentication_response(status, &body))?;
+        let user_id = response_user_id.or(user_id).unwrap_or(pending.account);
         let ssecurity = ssecurity.ok_or(MiotError::Protocol(
             "cloud login response did not contain ssecurity",
         ))?;
@@ -464,4 +471,60 @@ fn now_millis() -> String {
         .unwrap_or_default()
         .as_millis()
         .to_string()
+}
+
+fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
+    let value =
+        serde_json::from_str::<serde_json::Value>(body.trim_start_matches("&&&START&&&")).ok();
+    let code = value
+        .as_ref()
+        .and_then(|value| value.get("code"))
+        .and_then(serde_json::Value::as_i64);
+    let response = value.map_or_else(
+        || redact_text(body),
+        |mut value| {
+            redact_response(&mut value);
+            value.to_string()
+        },
+    );
+    MiotError::AuthenticationResponse {
+        status: status.as_u16(),
+        code,
+        response: response.chars().take(4096).collect(),
+    }
+}
+
+fn redact_response(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, value) in object {
+                if is_sensitive_key(key) {
+                    *value = serde_json::Value::String("[REDACTED]".to_owned());
+                } else {
+                    redact_response(value);
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                redact_response(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn redact_text(text: &str) -> String {
+    text.replace("serviceToken", "[REDACTED]")
+        .replace("ssecurity", "[REDACTED]")
+        .replace("passToken", "[REDACTED]")
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "password", "hash", "token", "security", "ticket", "cookie", "location",
+    ]
+    .iter()
+    .any(|fragment| key.contains(fragment))
 }
