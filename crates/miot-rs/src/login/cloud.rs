@@ -529,9 +529,11 @@ fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError
         .as_ref()
         .and_then(|value| value.get("code"))
         .and_then(serde_json::Value::as_i64);
+    let response = value.map_or_else(|| body.to_owned(), |value| value.to_string());
     MiotError::AuthenticationResponse {
         status: status.as_u16(),
         code,
+        response: response.chars().take(4096).collect(),
     }
 }
 
@@ -595,14 +597,14 @@ mod tests {
     }
 
     #[test]
-    fn authentication_error_never_includes_response_body() {
+    fn authentication_error_includes_response_body_for_debugging() {
         let error = authentication_response(
             reqwest::StatusCode::UNAUTHORIZED,
             r#"{"code":70016,"serviceToken":"secret"}"#,
         );
         assert_eq!(
             error.to_string(),
-            "authentication failed (HTTP 401, server code 70016)"
+            "authentication failed (HTTP 401, server code 70016): {\"code\":70016,\"serviceToken\":\"secret\"}"
         );
     }
 }

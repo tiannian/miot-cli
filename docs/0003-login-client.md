@@ -67,10 +67,10 @@ impl CloudLoginClient {
 
 凭据只通过登录方法的返回值交付。SDK 不会保存、恢复或删除凭据；调用方若有持久化需求，必须在 SDK 外部自行处理返回结构体。OAuth 刷新以调用方的凭据实例为粒度 single-flight；Cloud 登录和挑战续办以 `CloudLoginClient` 实例为粒度串行，避免 cookie 与挑战交叉污染。
 
-错误至少区分 `Authentication`、`Authorization`、`VerificationRequired`、`CaptchaRequired`、`Network`、`Timeout` 与 `Protocol`。错误消息可说明下一步操作，但不得包含账号、密码、cookie、授权码、refresh token、服务 token、`ssecurity`、完整回调 URL 或完整服务响应。
+错误至少区分 `Authentication`、`Authorization`、`VerificationRequired`、`CaptchaRequired`、`Network`、`Timeout` 与 `Protocol`。为便于命令行调试，认证失败错误可以保留并输出长度受限的服务端响应；该响应可能包含 cookie、服务 token 或其他秘密。此类输出不得写入日志、持久化配置或测试 fixture，使用者应避免在共享终端、CI 日志或工单中泄露。
 
 ## CLI 映射与验收
 
-`miot login oauth` 调用 `OAuthLoginClient`；`miot login cloud` 调用 `CloudLoginClient`。二者分别提示所需参数与挑战信息，并将成功结果交给 CLI 调用层；登录客户端本身不保存结果。CLI 是否持久化凭据不属于本期登录 SDK 的设计范围，且不得默认将秘密内容输出至终端或 JSON。
+`miot login oauth` 调用 `OAuthLoginClient`；`miot login cloud` 调用 `CloudLoginClient`。二者分别提示所需参数与挑战信息，并将成功结果交给 CLI 调用层；登录客户端本身不保存结果。CLI 会将成功凭据保存到本地文件，并在终端输出完整凭据以便调试；使用者应避免在共享终端、CI 日志或工单中运行该命令。
 
 首期验收覆盖 OAuth 的授权 URL、state 校验、授权码交换、刷新与刷新并发；以及 Cloud 的成功三段登录、错误密码、二次验证、验证码、服务 token 缺失和挑战清理。所有 fixture 必须脱敏，且测试必须断言 `Debug`、日志和 CLI JSON 中不出现任何秘密字段。
