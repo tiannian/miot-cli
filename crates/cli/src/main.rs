@@ -195,7 +195,11 @@ async fn login_with_userpass(
                     "Open the CAPTCHA image at {} and enter its text.",
                     image_path.display()
                 );
-                println!("Challenge URL: {}", challenge.url);
+                if challenge.rejected_previous_answer {
+                    println!(
+                        "The previous CAPTCHA answer was rejected; use the replacement image."
+                    );
+                }
                 let captcha = read_line("captcha> ")?;
                 let _ = fs::remove_file(&image_path);
                 outcome = client.submit_captcha(captcha).await?;

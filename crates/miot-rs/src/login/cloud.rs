@@ -38,6 +38,8 @@ pub struct CaptchaChallenge {
     pub id: String,
     pub url: Url,
     pub image: Vec<u8>,
+    /// Whether the preceding CAPTCHA answer was rejected and this is a replacement challenge.
+    pub rejected_previous_answer: bool,
 }
 
 /// Credentials for the Xiaomi cloud service-login protocol.
@@ -75,6 +77,7 @@ pub enum CloudLoginOutcome {
 #[derive(Debug)]
 pub struct CloudLoginClient {
     client: reqwest::Client,
+    jar: Arc<reqwest::cookie::Jar>,
     region: String,
     sid: String,
     pending: Option<PendingLogin>,
@@ -122,11 +125,12 @@ impl CloudLoginClient {
             "Android-7.1.1-1.0.0-ONEPLUS A3010-136-{device_id} APP/xiaomi.smarthome APPV/62830"
         );
         let client = reqwest::Client::builder()
-            .cookie_provider(jar)
+            .cookie_provider(Arc::clone(&jar))
             .user_agent(user_agent)
             .build()?;
         Ok(Self {
             client,
+            jar,
             region,
             sid,
             pending: None,
@@ -215,11 +219,34 @@ impl CloudLoginClient {
             }
             let location = verified.location.ok_or(MiotError::Authentication)?;
             let initial = self.client.get(location).send().await?;
-            let initial_token = cookie_value(initial.headers(), "serviceToken");
+            let initial_status = initial.status();
+            let initial_url = initial.url().clone();
+            let mut initial_token = cookie_value(initial.headers(), "serviceToken");
+            let initial_body = initial.text().await?;
+            if !initial_status.is_success() {
+                self.pending = None;
+                return Err(authentication_response(initial_status, &initial_body));
+            }
+            if let Some(skip_url) = confirm_phone_skip_url(&initial_url)? {
+                let skipped = self.client.get(skip_url).send().await?;
+                let skipped_status = skipped.status();
+                initial_token = cookie_value(skipped.headers(), "serviceToken").or(initial_token);
+                let skipped_body = skipped.text().await?;
+                if !skipped_status.is_success() {
+                    self.pending = None;
+                    return Err(authentication_response(skipped_status, &skipped_body));
+                }
+            }
             let context = self.fetch_context().await?;
             let location = context.location.ok_or(MiotError::Authentication)?;
             return self
-                .finish_location(location, context.ssecurity, context.user_id, initial_token)
+                .finish_location(
+                    location,
+                    context.ssecurity,
+                    context.user_id,
+                    initial_token,
+                    None,
+                )
                 .await;
         }
         self.pending = None;
@@ -291,7 +318,10 @@ impl CloudLoginClient {
         if captcha.is_some() {
             request = request.query(&[("_dc", now_millis().as_str())]);
             if let Some(ick) = &pending.captcha_ick {
-                request = request.header(reqwest::header::COOKIE, format!("ick={ick}"));
+                // Put the CAPTCHA cookie into the jar instead of setting Cookie directly:
+                // a direct header would suppress the device and login-session cookies.
+                self.jar
+                    .add_cookie_str(&format!("ick={ick}"), &Self::account_url("/")?);
             }
         }
         self.finish_auth_response(request.send().await?).await
@@ -310,7 +340,7 @@ impl CloudLoginClient {
         let auth: AuthResponse = decode_json(&body)?;
         if let Some(location) = auth.location {
             return self
-                .finish_location(location, auth.ssecurity, auth.user_id, None)
+                .finish_location(location, auth.ssecurity, auth.user_id, None, auth.nonce)
                 .await;
         }
         if let Some(notification) = auth.notification_url {
@@ -333,7 +363,17 @@ impl CloudLoginClient {
                 id,
                 url,
                 image,
+                rejected_previous_answer: auth.code == Some(87_001),
             }));
+        }
+        if auth.code == Some(81_003) {
+            if let Some(url) = self
+                .pending
+                .as_ref()
+                .and_then(|pending| pending.verification_url.clone())
+            {
+                return Ok(CloudLoginOutcome::VerificationRequired { url });
+            }
         }
         self.pending = None;
         Err(authentication_response(status, &body))
@@ -354,17 +394,21 @@ impl CloudLoginClient {
         ssecurity: Option<String>,
         user_id: Option<String>,
         initial_token: Option<String>,
+        nonce: Option<String>,
     ) -> Result<CloudLoginOutcome, MiotError> {
         let pending = self
             .pending
             .take()
             .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
-        let location = self.add_client_sign(location, ssecurity.as_deref())?;
+        let location = self.add_client_sign(location, ssecurity.as_deref(), nonce.as_deref())?;
         let final_response = self.client.get(location).send().await?;
         let status = final_response.status();
         let token = cookie_value(final_response.headers(), "serviceToken").or(initial_token);
         let response_user_id = cookie_value(final_response.headers(), "userId");
         let body = final_response.text().await?;
+        if !status.is_success() {
+            return Err(authentication_response(status, &body));
+        }
         let token = token.ok_or_else(|| authentication_response(status, &body))?;
         let user_id = response_user_id.or(user_id).unwrap_or(pending.account);
         let ssecurity = ssecurity.ok_or(MiotError::Protocol(
@@ -380,6 +424,7 @@ impl CloudLoginClient {
         &self,
         mut location: String,
         ssecurity: Option<&str>,
+        response_nonce: Option<&str>,
     ) -> Result<String, MiotError> {
         if self.sid == "xiaomiio" {
             return Ok(location);
@@ -387,12 +432,14 @@ impl CloudLoginClient {
         let secret = ssecurity.ok_or(MiotError::Protocol(
             "cloud login response did not contain ssecurity",
         ))?;
-        let nonce = Url::parse(&location)
-            .ok()
-            .and_then(|url| {
-                url.query_pairs()
-                    .find(|(key, _)| key == "nonce")
-                    .map(|(_, value)| value.into_owned())
+        let nonce = response_nonce
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                Url::parse(&location).ok().and_then(|url| {
+                    url.query_pairs()
+                        .find(|(key, _)| key == "nonce")
+                        .map(|(_, value)| value.into_owned())
+                })
             })
             .ok_or(MiotError::Protocol(
                 "cloud login response did not contain nonce",
@@ -423,6 +470,7 @@ struct ServiceLogin {
 }
 #[derive(Deserialize)]
 struct AuthResponse {
+    code: Option<i64>,
     location: Option<String>,
     #[serde(rename = "notificationUrl")]
     notification_url: Option<String>,
@@ -431,6 +479,7 @@ struct AuthResponse {
     #[serde(rename = "userId")]
     user_id: Option<String>,
     ssecurity: Option<String>,
+    nonce: Option<String>,
 }
 #[derive(Deserialize)]
 struct IdentityListResponse {
@@ -480,10 +529,80 @@ fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError
         .as_ref()
         .and_then(|value| value.get("code"))
         .and_then(serde_json::Value::as_i64);
-    let response = value.map_or_else(|| body.to_owned(), |value| value.to_string());
     MiotError::AuthenticationResponse {
         status: status.as_u16(),
         code,
-        response: response.chars().take(4096).collect(),
+    }
+}
+
+fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
+    if !url.path().starts_with("/fe/") {
+        return Ok(None);
+    }
+    let Some((_, value)) = url.query_pairs().find(|(key, _)| key == "skipUrl") else {
+        return Ok(None);
+    };
+    CloudLoginClient::absolute_url(&value)
+        .map(Some)
+        .map_err(|_| MiotError::Protocol("invalid cloud verification skip URL"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_confirm_phone_skip_url() {
+        let url = Url::parse(
+            "https://account.xiaomi.com/fe/identity/result/check?skipUrl=%2Fpass%2Fcontinue%3Fa%3Db",
+        )
+        .expect("valid URL");
+        assert_eq!(
+            confirm_phone_skip_url(&url)
+                .expect("valid skip URL")
+                .expect("skip URL present")
+                .as_str(),
+            "https://account.xiaomi.com/pass/continue?a=b"
+        );
+    }
+
+    #[test]
+    fn ignores_skip_url_outside_frontend_flow() {
+        let url = Url::parse("https://account.xiaomi.com/pass/continue?skipUrl=%2Fnext")
+            .expect("valid URL");
+        assert!(confirm_phone_skip_url(&url).expect("valid URL").is_none());
+    }
+
+    #[test]
+    fn client_sign_prefers_auth_response_nonce() {
+        let client = CloudLoginClient::new("cn", "micoapi", "device-id").expect("valid client");
+        let signed = client
+            .add_client_sign(
+                "https://example.test/callback?nonce=location-nonce".to_owned(),
+                Some("c2VjdXJpdHk="),
+                Some("response-nonce"),
+            )
+            .expect("client sign");
+        let url = Url::parse(&signed).expect("valid signed URL");
+        let signature = url
+            .query_pairs()
+            .find(|(key, _)| key == "clientSign")
+            .map(|(_, value)| value.into_owned())
+            .expect("client sign present");
+        let expected = base64::engine::general_purpose::STANDARD
+            .encode(Sha1::digest(b"nonce=response-nonce&c2VjdXJpdHk="));
+        assert_eq!(signature, expected);
+    }
+
+    #[test]
+    fn authentication_error_never_includes_response_body() {
+        let error = authentication_response(
+            reqwest::StatusCode::UNAUTHORIZED,
+            r#"{"code":70016,"serviceToken":"secret"}"#,
+        );
+        assert_eq!(
+            error.to_string(),
+            "authentication failed (HTTP 401, server code 70016)"
+        );
     }
 }
