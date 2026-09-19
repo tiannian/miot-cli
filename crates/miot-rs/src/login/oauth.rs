@@ -172,13 +172,19 @@ impl OAuthLoginClient {
                 "OAuth token endpoint returned an unexpected status",
             ));
         }
-        let payload: TokenEnvelope = response.json().await?;
+        let body = response.text().await?;
+        let payload: TokenEnvelope = serde_json::from_str(&body).map_err(|_| {
+            MiotError::Protocol("OAuth token endpoint returned an invalid response")
+        })?;
         if payload.code != 0 {
             return Err(MiotError::Authorization);
         }
-        let token = payload
-            .result
-            .ok_or(MiotError::Protocol("OAuth token response is incomplete"))?;
+        let token: TokenResult = serde_json::from_value(
+            payload
+                .result
+                .ok_or(MiotError::Protocol("OAuth token response is incomplete"))?,
+        )
+        .map_err(|_| MiotError::Protocol("OAuth token response is incomplete"))?;
         if token.access_token.is_empty() || token.refresh_token.is_empty() {
             return Err(MiotError::Protocol("OAuth token response is incomplete"));
         }
@@ -205,7 +211,7 @@ impl OAuthLoginClient {
 #[derive(Deserialize)]
 struct TokenEnvelope {
     code: i64,
-    result: Option<TokenResult>,
+    result: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct TokenResult {
@@ -253,5 +259,13 @@ mod tests {
             us.oauth_url(TOKEN_PATH).expect("valid endpoint").as_str(),
             "https://us.ha.api.io.mi.com/app/v2/ha/oauth/get_token"
         );
+    }
+
+    #[test]
+    fn error_response_does_not_require_token_fields() {
+        let payload: TokenEnvelope =
+            serde_json::from_str(r#"{"code":-1,"result":{}}"#).expect("error response is valid");
+
+        assert_eq!(payload.code, -1);
     }
 }
