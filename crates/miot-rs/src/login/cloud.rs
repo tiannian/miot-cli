@@ -313,7 +313,7 @@ impl CloudLoginClient {
             qs: value.qs.unwrap_or_default(),
             sign: value.sign.unwrap_or_default(),
             ssecurity: value.ssecurity,
-            user_id: value.user_id,
+            user_id: json_string_or_number(value.user_id),
             location: value.location,
         })
     }
@@ -394,9 +394,10 @@ impl CloudLoginClient {
             ));
         }
         let auth: AuthResponse = decode_json(&body)?;
+        let user_id = json_string_or_number(auth.user_id);
         if let Some(location) = auth.location.filter(|location| !location.is_empty()) {
             return self
-                .finish_location(location, auth.ssecurity, auth.user_id, auth.nonce)
+                .finish_location(location, auth.ssecurity, user_id, auth.nonce)
                 .await;
         }
         if let Some(notification) = auth.notification_url.filter(|url| !url.is_empty()) {
@@ -536,7 +537,7 @@ struct ServiceLogin {
     sign: Option<String>,
     ssecurity: Option<String>,
     #[serde(rename = "userId")]
-    user_id: Option<String>,
+    user_id: Option<serde_json::Value>,
     location: Option<String>,
 }
 #[derive(Deserialize)]
@@ -548,7 +549,7 @@ struct AuthResponse {
     #[serde(rename = "captchaUrl")]
     captcha_url: Option<String>,
     #[serde(rename = "userId")]
-    user_id: Option<String>,
+    user_id: Option<serde_json::Value>,
     ssecurity: Option<String>,
     nonce: Option<String>,
 }
@@ -567,6 +568,15 @@ fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, MiotErro
     trace_entry("decode_json");
     serde_json::from_str(text.trim_start_matches("&&&START&&&"))
         .map_err(|_| MiotError::Protocol("cloud login returned an invalid response"))
+}
+
+fn json_string_or_number(value: Option<serde_json::Value>) -> Option<String> {
+    trace_entry("json_string_or_number");
+    match value? {
+        serde_json::Value::String(value) => Some(value),
+        serde_json::Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
 }
 fn cookie_value(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
     trace_entry("cookie_value");
