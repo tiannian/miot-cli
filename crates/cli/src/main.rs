@@ -174,12 +174,11 @@ async fn login_with_userpass(
         .clone()
         .unwrap_or_else(generate_xiaomi_client_id);
     let mut client = CloudLoginClient::new(&arguments.region, &arguments.sid, &device_id)?;
-    let mut outcome = client
-        .login(CloudLoginRequest {
-            account: account.to_owned(),
-            password: password.to_owned(),
-        })
-        .await?;
+    let request = CloudLoginRequest {
+        account: account.to_owned(),
+        password: password.to_owned(),
+    };
+    let mut outcome = client.login(request.clone()).await?;
     loop {
         match outcome {
             CloudLoginOutcome::Success(credential) => {
@@ -195,13 +194,19 @@ async fn login_with_userpass(
             }
             CloudLoginOutcome::VerificationRequired { url } => {
                 println!(
-                    "Open this page and send an SMS or email verification code. Do not complete verification in the browser; paste the received code here:"
+                    "Open this page and complete the required verification. Paste an SMS or email code below, or press Enter after confirming in the browser or on an already signed-in device to retry login."
                 );
                 println!("{url}");
-                let ticket = read_line("ticket> ")?;
-                outcome = client
-                    .continue_verification(VerificationProof::new(ticket))
-                    .await?;
+                match read_optional_line("ticket (or press Enter to retry)> ")? {
+                    Some(ticket) => {
+                        outcome = client
+                            .continue_verification(VerificationProof::new(ticket))
+                            .await?;
+                    }
+                    None => {
+                        outcome = client.login(request.clone()).await?;
+                    }
+                }
             }
             CloudLoginOutcome::CaptchaRequired(challenge) => {
                 let image_path =
@@ -225,15 +230,17 @@ async fn login_with_userpass(
 }
 
 fn read_line(prompt: &str) -> Result<String, Box<dyn Error>> {
+    let value = read_optional_line(prompt)?;
+    value.ok_or_else(|| "a value is required".into())
+}
+
+fn read_optional_line(prompt: &str) -> Result<Option<String>, Box<dyn Error>> {
     print!("{prompt}");
     io::stdout().flush()?;
     let mut value = String::new();
     io::stdin().read_line(&mut value)?;
     let value = value.trim().to_owned();
-    if value.is_empty() {
-        return Err("a value is required".into());
-    }
-    Ok(value)
+    Ok((!value.is_empty()).then_some(value))
 }
 
 async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
