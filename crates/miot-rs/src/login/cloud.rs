@@ -321,7 +321,6 @@ impl CloudLoginClient {
         let options = identity
             .options
             .unwrap_or_else(|| vec![identity.flag.unwrap_or(4)]);
-        println!("cloud_login verification_options: {options:?}");
         let verification_cookie = self.verification_cookie_header()?;
         let mut last_failure = None;
         for flag in options {
@@ -330,7 +329,6 @@ impl CloudLoginClient {
                 8 => "/identity/auth/verifyEmail",
                 _ => continue,
             };
-            println!("cloud_login verification_method: flag={flag}, path={path}");
             let mut request = self
                 .client
                 .post(Self::account_url(path)?)
@@ -352,10 +350,6 @@ impl CloudLoginClient {
                 return Err(authentication_response(status, &body));
             }
             let verified: VerificationResponse = decode_json(&body)?;
-            println!(
-                "cloud_login verification_response: flag={flag}, code={}",
-                verified.code
-            );
             if verified.code != 0 {
                 last_failure = Some((status, body));
                 continue;
@@ -423,8 +417,6 @@ impl CloudLoginClient {
             .await?;
         let status = response.status();
         let body = response.text().await?;
-        println!("cloud_login service_login_status: {status}");
-        println!("cloud_login service_login_response: {body}");
         if !status.is_success() {
             return Err(authentication_response(status, &body));
         }
@@ -450,13 +442,6 @@ impl CloudLoginClient {
             .jar
             .cookies(&account_url)
             .and_then(|header| header.to_str().ok().map(ToOwned::to_owned));
-        let cookie_names = cookie_header.as_deref().map_or_else(Vec::new, |header| {
-            header
-                .split(';')
-                .filter_map(|cookie| cookie.trim().split_once('=').map(|(name, _)| name))
-                .collect::<Vec<_>>()
-        });
-        println!("cloud_login verification_cookie_names: {cookie_names:?}");
         Ok(cookie_header)
     }
 
@@ -470,7 +455,6 @@ impl CloudLoginClient {
             .as_ref()
             .ok_or(MiotError::Protocol("no active cloud login"))?;
         let password_hash = format!("{:X}", Md5::digest(pending.password.as_bytes()));
-        println!("password_md5: {password_hash}");
         let mut form = vec![
             ("user", pending.account.as_str()),
             ("hash", password_hash.as_str()),
@@ -504,19 +488,11 @@ impl CloudLoginClient {
         response: reqwest::Response,
     ) -> Result<CloudLoginOutcome, MiotError> {
         trace_entry("CloudLoginClient::finish_auth_response");
-        let password_md5 = self
-            .pending
-            .as_ref()
-            .map(|pending| format!("{:X}", Md5::digest(pending.password.as_bytes())));
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
             self.pending = None;
-            return Err(authentication_response_with_password_md5(
-                status,
-                &body,
-                password_md5,
-            ));
+            return Err(authentication_response(status, &body));
         }
         let auth: AuthResponse = decode_json(&body)?;
         let user_id = json_string_or_number(auth.user_id);
@@ -563,11 +539,7 @@ impl CloudLoginClient {
             }
         }
         self.pending = None;
-        Err(authentication_response_with_password_md5(
-            status,
-            &body,
-            password_md5,
-        ))
+        Err(authentication_response(status, &body))
     }
 
     fn account_url(path: &str) -> Result<Url, MiotError> {
@@ -594,7 +566,6 @@ impl CloudLoginClient {
             .take()
             .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
         let location = self.add_client_sign(location, ssecurity.as_deref(), nonce.as_deref())?;
-        println!("cloud_login final_location: {location}");
         let final_response = self
             .client
             .get(location)
@@ -793,28 +764,61 @@ fn now_millis() -> String {
 
 fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
     trace_entry("authentication_response");
-    authentication_response_with_password_md5(status, body, None)
-}
-
-fn authentication_response_with_password_md5(
-    status: reqwest::StatusCode,
-    body: &str,
-    password_md5: Option<String>,
-) -> MiotError {
-    trace_entry("authentication_response_with_password_md5");
     let body = body.trim_start_matches("&&&START&&&");
     let value = serde_json::from_str::<serde_json::Value>(body).ok();
     let code = value
         .as_ref()
         .and_then(|value| value.get("code"))
         .and_then(serde_json::Value::as_i64);
-    let response = value.map_or_else(|| body.to_owned(), |value| value.to_string());
+    let response = value.map_or_else(|| body.to_owned(), redact_sensitive_values);
     MiotError::AuthenticationResponse {
         status: status.as_u16(),
         code,
         response: response.chars().take(4096).collect(),
-        password_md5,
     }
+}
+
+fn redact_sensitive_values(mut value: serde_json::Value) -> String {
+    redact_sensitive_value(&mut value);
+    value.to_string()
+}
+
+fn redact_sensitive_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, value) in object {
+                if is_sensitive_key(key) {
+                    *value = serde_json::Value::String("[REDACTED]".to_owned());
+                } else {
+                    redact_sensitive_value(value);
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                redact_sensitive_value(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "token",
+        "password",
+        "secret",
+        "security",
+        "cookie",
+        "authorization",
+        "ticket",
+        "captcha",
+        "nonce",
+        "sign",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
 }
 
 fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
@@ -831,7 +835,7 @@ fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
 }
 
 fn trace_entry(function: &str) {
-    println!("cloud_login entered: {function}");
+    let _ = function;
 }
 
 #[cfg(test)]
@@ -897,14 +901,26 @@ mod tests {
     }
 
     #[test]
-    fn authentication_error_includes_response_body_for_debugging() {
+    fn authentication_error_redacts_sensitive_response_fields() {
         let error = authentication_response(
             reqwest::StatusCode::UNAUTHORIZED,
             r#"{"code":70016,"serviceToken":"secret"}"#,
         );
         assert_eq!(
             error.to_string(),
-            "authentication failed (HTTP 401, server code 70016): {\"code\":70016,\"serviceToken\":\"secret\"}"
+            "authentication failed (HTTP 401, server code 70016): {\"code\":70016,\"serviceToken\":\"[REDACTED]\"}"
+        );
+    }
+
+    #[test]
+    fn authentication_error_preserves_non_sensitive_response_fields() {
+        let error = authentication_response(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"code":42,"message":"invalid account","details":{"retry_after":60}}"#,
+        );
+        assert_eq!(
+            error.to_string(),
+            "authentication failed (HTTP 400, server code 42): {\"code\":42,\"details\":{\"retry_after\":60},\"message\":\"invalid account\"}"
         );
     }
 }

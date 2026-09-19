@@ -139,10 +139,6 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
     }
     fs::write(&path, serde_json::to_vec_pretty(&result.credential)?)?;
     println!("Login succeeded. Credential saved to {}.", path.display());
-    println!(
-        "Credential:\n{}",
-        serde_json::to_string_pretty(&result.credential)?
-    );
     Ok(())
 }
 

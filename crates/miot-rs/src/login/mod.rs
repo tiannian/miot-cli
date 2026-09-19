@@ -11,8 +11,8 @@ pub use oauth::{OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient};
 
 use std::{error::Error, fmt};
 
-/// An error returned by a login client. Authentication failures retain a bounded server response
-/// for command-line debugging and can contain secrets.
+/// An error returned by a login client. Authentication failures retain a bounded, redacted server
+/// response for command-line debugging.
 #[derive(Debug)]
 pub enum MiotError {
     Authentication,
@@ -20,7 +20,6 @@ pub enum MiotError {
         status: u16,
         code: Option<i64>,
         response: String,
-        password_md5: Option<String>,
     },
     Authorization,
     AuthorizationResponse {
@@ -42,21 +41,16 @@ impl fmt::Display for MiotError {
                 status,
                 code,
                 response,
-                password_md5,
             } => {
-                let digest = password_md5
-                    .as_deref()
-                    .map(|digest| format!("; password_md5: {digest}"))
-                    .unwrap_or_default();
                 if let Some(code) = code {
                     return write!(
                         formatter,
-                        "authentication failed (HTTP {status}, server code {code}): {response}{digest}"
+                        "authentication failed (HTTP {status}, server code {code}): {response}"
                     );
                 }
                 return write!(
                     formatter,
-                    "authentication failed (HTTP {status}): {response}{digest}"
+                    "authentication failed (HTTP {status}): {response}"
                 );
             }
             Self::Authorization => "authorization failed",
