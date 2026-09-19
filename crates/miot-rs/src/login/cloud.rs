@@ -278,9 +278,6 @@ impl CloudLoginClient {
             return Err(authentication_response(status, &body));
         }
         let value: ServiceLogin = decode_json(&body)?;
-        if value.code != 0 {
-            return Err(authentication_response(status, &body));
-        }
         Ok(LoginContext {
             callback: value.callback.unwrap_or_default(),
             sid: value.sid.unwrap_or_else(|| self.sid.clone()),
@@ -485,7 +482,6 @@ impl CloudLoginClient {
 
 #[derive(Deserialize)]
 struct ServiceLogin {
-    code: i64,
     callback: Option<String>,
     sid: Option<String>,
     qs: Option<String>,
@@ -600,6 +596,21 @@ fn trace_entry(function: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn service_login_context_is_usable_when_server_returns_70016() {
+        let response: ServiceLogin = decode_json(
+            r#"{"code":70016,"callback":"https://sts.api.io.mi.com/sts","sid":"xiaomiio","qs":"%3Fsid%3Dxiaomiio","_sign":"sign"}"#,
+        )
+        .expect("service-login response parses");
+        assert_eq!(
+            response.callback.as_deref(),
+            Some("https://sts.api.io.mi.com/sts")
+        );
+        assert_eq!(response.sid.as_deref(), Some("xiaomiio"));
+        assert_eq!(response.qs.as_deref(), Some("%3Fsid%3Dxiaomiio"));
+        assert_eq!(response.sign.as_deref(), Some("sign"));
+    }
 
     #[test]
     fn extracts_confirm_phone_skip_url() {
