@@ -68,7 +68,7 @@ impl fmt::Display for MiotError {
             }
             Self::VerificationRequired => "verification is required",
             Self::CaptchaRequired => "captcha is required",
-            Self::Network(_) => "network request failed",
+            Self::Network(error) => return write!(formatter, "network request failed: {error}"),
             Self::Protocol(message) | Self::InvalidInput(message) => message,
         };
         formatter.write_str(message)

@@ -417,6 +417,7 @@ impl CloudLoginClient {
             .take()
             .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
         let location = self.add_client_sign(location, ssecurity.as_deref(), nonce.as_deref())?;
+        println!("cloud_login final_location: {location}");
         let final_response = self
             .client
             .get(location)
