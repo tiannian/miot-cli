@@ -41,11 +41,14 @@ enum AuthSubcommand {
 }
 
 #[derive(Args)]
-#[command(group(ArgGroup::new("login_mode").required(true).args(["userpass", "oauth"])))]
+#[command(group(ArgGroup::new("login_mode").required(true).args(["userpass", "userpass_stdin", "oauth"])))]
 struct LoginArguments {
     /// Sign in with USERNAME:PASSWORD.
     #[arg(long)]
     userpass: Option<String>,
+    /// Read USERNAME:PASSWORD from standard input.
+    #[arg(long)]
+    userpass_stdin: bool,
     /// Sign in through the OAuth authorization-code flow.
     #[arg(long)]
     oauth: bool,
@@ -116,6 +119,9 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
 async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
     let mut result = if let Some(userpass) = arguments.userpass.clone() {
         login_with_userpass(&arguments, &userpass).await?
+    } else if arguments.userpass_stdin {
+        let userpass = read_userpass_stdin()?;
+        login_with_userpass(&arguments, &userpass).await?
     } else {
         login_with_oauth(&arguments).await?
     };
@@ -129,6 +135,16 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
     fs::write(&path, serde_json::to_vec_pretty(&result.credential)?)?;
     println!("Login succeeded. Credential saved to {}.", path.display());
     Ok(())
+}
+
+fn read_userpass_stdin() -> Result<String, Box<dyn Error>> {
+    let mut userpass = String::new();
+    io::stdin().read_line(&mut userpass)?;
+    let userpass = userpass.trim_end_matches(['\r', '\n']).to_owned();
+    if userpass.is_empty() {
+        return Err("standard input must contain USERNAME:PASSWORD".into());
+    }
+    Ok(userpass)
 }
 
 async fn login_with_userpass(
