@@ -44,7 +44,7 @@ miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 
 ## 账号密码登录验证
 
-`--userpass` 按照 `hass-xiaomi-miot` 的小米账号登录协议请求服务。若小米要求图形验证码，CLI 会将图片写入系统临时目录并提示路径；输入验证码后临时图片会删除。若要求账号二次验证，先在终端显示的 URL 中完成验证，再将页面给出的 verification ticket 粘贴回终端。
+`--userpass` 按照 `hass-xiaomi-miot` 的小米账号登录协议请求服务。未传入 `--device-id` 时，CLI 会生成与该参考实现相同格式的 16 位大写字母和数字 client ID，并将它和凭据一同保存。若小米要求图形验证码，CLI 会将图片写入系统临时目录并提示路径；输入验证码后临时图片会删除。若要求账号二次验证，先在终端显示的 URL 中完成验证，再将页面给出的 verification ticket 粘贴回终端。
 
 不要将含密码的命令写入 shell 历史记录或共享的脚本。登录成功后，凭据保存在 `~/.local/miot.rs/accounts/`。
 

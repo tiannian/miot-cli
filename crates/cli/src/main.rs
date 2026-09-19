@@ -53,8 +53,8 @@ struct LoginArguments {
     #[arg(long, default_value = "cn")]
     region: String,
     /// Stable local device identifier.
-    #[arg(long, default_value = "miot-cli")]
-    device_id: String,
+    #[arg(long)]
+    device_id: Option<String>,
     /// Xiaomi service identifier for user-password login.
     #[arg(long, default_value = "xiaomiio")]
     sid: String,
@@ -84,6 +84,7 @@ enum StoredCredential {
         user_id: String,
         service_token: String,
         ssecurity: String,
+        device_id: String,
     },
 }
 
@@ -140,8 +141,11 @@ async fn login_with_userpass(
     if account.is_empty() || password.is_empty() {
         return Err("--userpass must contain both username and password".into());
     }
-    let mut client =
-        CloudLoginClient::new(&arguments.region, &arguments.sid, &arguments.device_id)?;
+    let device_id = arguments
+        .device_id
+        .clone()
+        .unwrap_or_else(generate_xiaomi_client_id);
+    let mut client = CloudLoginClient::new(&arguments.region, &arguments.sid, &device_id)?;
     let mut outcome = client
         .login(CloudLoginRequest {
             account: account.to_owned(),
@@ -157,6 +161,7 @@ async fn login_with_userpass(
                         user_id: credential.user_id().to_owned(),
                         service_token: credential.service_token().to_owned(),
                         ssecurity: credential.ssecurity().to_owned(),
+                        device_id: device_id.clone(),
                     },
                 });
             }
@@ -205,7 +210,7 @@ async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box
         &arguments.client_id,
         redirect_url,
         &arguments.region,
-        &arguments.device_id,
+        arguments.device_id.as_deref().unwrap_or("miot-cli"),
     )?;
     let authorization_url = client.authorization_url(OAuthAuthorizationRequest {
         scopes: arguments.scope.clone(),
@@ -224,6 +229,16 @@ async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box
         account_id: arguments.client_id.clone(),
         credential: stored_oauth_credential(&credential)?,
     })
+}
+
+fn generate_xiaomi_client_id() -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).expect("secure random generation failed");
+    bytes
+        .iter()
+        .map(|byte| ALPHABET[usize::from(*byte) % ALPHABET.len()] as char)
+        .collect()
 }
 
 fn oauth_redirect_url(base_url: &Url) -> Result<Url, Box<dyn Error>> {

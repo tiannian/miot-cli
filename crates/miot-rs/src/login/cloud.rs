@@ -523,7 +523,17 @@ fn redact_text(text: &str) -> String {
 fn is_sensitive_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     [
-        "password", "hash", "token", "security", "ticket", "cookie", "location",
+        "password",
+        "hash",
+        "token",
+        "security",
+        "ticket",
+        "cookie",
+        "location",
+        "callback",
+        "sign",
+        "qs",
+        "serviceparam",
     ]
     .iter()
     .any(|fragment| key.contains(fragment))
