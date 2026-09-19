@@ -177,7 +177,12 @@ impl OAuthLoginClient {
             MiotError::Protocol("OAuth token endpoint returned an invalid response")
         })?;
         if payload.code != 0 {
-            return Err(MiotError::Authorization);
+            return Err(MiotError::AuthorizationResponse {
+                code: payload.code,
+                message: payload
+                    .message
+                    .unwrap_or_else(|| "no error message".to_owned()),
+            });
         }
         let token: TokenResult = serde_json::from_value(
             payload
@@ -211,6 +216,7 @@ impl OAuthLoginClient {
 #[derive(Deserialize)]
 struct TokenEnvelope {
     code: i64,
+    message: Option<String>,
     result: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
@@ -264,8 +270,10 @@ mod tests {
     #[test]
     fn error_response_does_not_require_token_fields() {
         let payload: TokenEnvelope =
-            serde_json::from_str(r#"{"code":-1,"result":{}}"#).expect("error response is valid");
+            serde_json::from_str(r#"{"code":-1,"message":"request rejected","result":{}}"#)
+                .expect("error response is valid");
 
         assert_eq!(payload.code, -1);
+        assert_eq!(payload.message.as_deref(), Some("request rejected"));
     }
 }

@@ -16,6 +16,7 @@ use std::{error::Error, fmt};
 pub enum MiotError {
     Authentication,
     Authorization,
+    AuthorizationResponse { code: i64, message: String },
     VerificationRequired,
     CaptchaRequired,
     Network(reqwest::Error),
@@ -28,6 +29,12 @@ impl fmt::Display for MiotError {
         let message = match self {
             Self::Authentication => "authentication failed",
             Self::Authorization => "authorization failed",
+            Self::AuthorizationResponse { code, message } => {
+                return write!(
+                    formatter,
+                    "authorization failed (server code {code}): {message}"
+                );
+            }
             Self::VerificationRequired => "verification is required",
             Self::CaptchaRequired => "captcha is required",
             Self::Network(_) => "network request failed",
