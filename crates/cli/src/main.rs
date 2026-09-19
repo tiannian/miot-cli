@@ -9,7 +9,7 @@ use std::{
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use miot_rs::{
     CloudLoginClient, CloudLoginOutcome, CloudLoginRequest, OAuthAuthorizationRequest,
-    OAuthCredential, OAuthLoginClient,
+    OAuthCredential, OAuthLoginClient, VerificationProof,
 };
 use serde::Serialize;
 use url::Url;
@@ -142,26 +142,61 @@ async fn login_with_userpass(
     }
     let mut client =
         CloudLoginClient::new(&arguments.region, &arguments.sid, &arguments.device_id)?;
-    match client
+    let mut outcome = client
         .login(CloudLoginRequest {
             account: account.to_owned(),
             password: password.to_owned(),
         })
-        .await?
-    {
-        CloudLoginOutcome::Success(credential) => Ok(LoginResult {
-            account_id: credential.user_id().to_owned(),
-            credential: StoredCredential::Cloud {
-                user_id: credential.user_id().to_owned(),
-                service_token: credential.service_token().to_owned(),
-                ssecurity: credential.ssecurity().to_owned(),
-            },
-        }),
-        CloudLoginOutcome::VerificationRequired { url } => {
-            Err(format!("account verification is required: {url}").into())
+        .await?;
+    loop {
+        match outcome {
+            CloudLoginOutcome::Success(credential) => {
+                return Ok(LoginResult {
+                    account_id: credential.user_id().to_owned(),
+                    credential: StoredCredential::Cloud {
+                        user_id: credential.user_id().to_owned(),
+                        service_token: credential.service_token().to_owned(),
+                        ssecurity: credential.ssecurity().to_owned(),
+                    },
+                });
+            }
+            CloudLoginOutcome::VerificationRequired { url } => {
+                println!(
+                    "Complete account verification in a browser, then paste the verification ticket:"
+                );
+                println!("{url}");
+                let ticket = read_line("ticket> ")?;
+                outcome = client
+                    .continue_verification(VerificationProof::new(ticket))
+                    .await?;
+            }
+            CloudLoginOutcome::CaptchaRequired(challenge) => {
+                let image_path =
+                    std::env::temp_dir().join(format!("miot-captcha-{}.png", challenge.id));
+                fs::write(&image_path, &challenge.image)?;
+                println!(
+                    "Open the CAPTCHA image at {} and enter its text.",
+                    image_path.display()
+                );
+                println!("Challenge URL: {}", challenge.url);
+                let captcha = read_line("captcha> ")?;
+                let _ = fs::remove_file(&image_path);
+                outcome = client.submit_captcha(captcha).await?;
+            }
         }
-        CloudLoginOutcome::CaptchaRequired(_) => Err("captcha verification is required".into()),
     }
+}
+
+fn read_line(prompt: &str) -> Result<String, Box<dyn Error>> {
+    print!("{prompt}");
+    io::stdout().flush()?;
+    let mut value = String::new();
+    io::stdin().read_line(&mut value)?;
+    let value = value.trim().to_owned();
+    if value.is_empty() {
+        return Err("a value is required".into());
+    }
+    Ok(value)
 }
 
 async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {

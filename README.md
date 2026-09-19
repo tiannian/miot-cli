@@ -21,8 +21,8 @@
 ## CLI 示例
 
 ```bash
-# Sign in
-miot login --region cn
+# 使用账号密码登录；密码含冒号时，只有第一个冒号作为分隔符
+miot auth login --region cn --userpass 'USERNAME:PASSWORD'
 
 # List devices
 miot devices list
@@ -41,6 +41,12 @@ miot props watch <did> --siid 2 --piid 1
 # Invoke a device action
 miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 ```
+
+## 账号密码登录验证
+
+`--userpass` 按照 `hass-xiaomi-miot` 的小米账号登录协议请求服务。若小米要求图形验证码，CLI 会将图片写入系统临时目录并提示路径；输入验证码后临时图片会删除。若要求账号二次验证，先在终端显示的 URL 中完成验证，再将页面给出的 verification ticket 粘贴回终端。
+
+不要将含密码的命令写入 shell 历史记录或共享的脚本。登录成功后，凭据保存在 `~/.local/miot.rs/accounts/`。
 
 Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 

@@ -36,6 +36,7 @@ impl VerificationProof {
 #[derive(Clone, Debug)]
 pub struct CaptchaChallenge {
     pub id: String,
+    pub url: Url,
     pub image: Vec<u8>,
 }
 
@@ -76,7 +77,6 @@ pub struct CloudLoginClient {
     client: reqwest::Client,
     region: String,
     sid: String,
-    device_id: String,
     pending: Option<PendingLogin>,
 }
 
@@ -86,6 +86,7 @@ struct PendingLogin {
     password: String,
     context: LoginContext,
     captcha_ick: Option<String>,
+    verification_url: Option<Url>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -94,6 +95,9 @@ struct LoginContext {
     sid: String,
     qs: String,
     sign: String,
+    ssecurity: Option<String>,
+    user_id: Option<String>,
+    location: Option<String>,
 }
 
 impl CloudLoginClient {
@@ -111,12 +115,20 @@ impl CloudLoginClient {
             ));
         }
         let jar = Arc::new(reqwest::cookie::Jar::default());
-        let client = reqwest::Client::builder().cookie_provider(jar).build()?;
+        let account_url = Self::account_url("/")?;
+        jar.add_cookie_str("sdkVersion=3.8.6", &account_url);
+        jar.add_cookie_str(&format!("deviceId={device_id}"), &account_url);
+        let user_agent = format!(
+            "Android-7.1.1-1.0.0-ONEPLUS A3010-136-{device_id} APP/xiaomi.smarthome APPV/62830"
+        );
+        let client = reqwest::Client::builder()
+            .cookie_provider(jar)
+            .user_agent(user_agent)
+            .build()?;
         Ok(Self {
             client,
             region,
             sid,
-            device_id,
             pending: None,
         })
     }
@@ -143,6 +155,7 @@ impl CloudLoginClient {
             password: request.password,
             context,
             captcha_ick: None,
+            verification_url: None,
         });
         self.authenticate(None).await
     }
@@ -151,22 +164,61 @@ impl CloudLoginClient {
         &mut self,
         proof: VerificationProof,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        let pending = self
+        let verify_url = self
             .pending
             .as_ref()
+            .and_then(|pending| pending.verification_url.clone())
             .ok_or(MiotError::VerificationRequired)?;
-        let response = self
-            .client
-            .post(Self::account_url("/pass/serviceLoginAuth2")?)
-            .query(&[("_json", "true")])
-            .form(&[
-                ("user", pending.account.as_str()),
-                ("sid", pending.context.sid.as_str()),
-                ("ticket", &proof.ticket),
-            ])
-            .send()
-            .await?;
-        self.finish_auth_response(response).await
+        let identity_url = verify_url
+            .as_str()
+            .replace("fe/service/identity/authStart", "identity/list");
+        let identity_response = self.client.get(identity_url).send().await?;
+        if !identity_response.status().is_success()
+            || cookie_value(identity_response.headers(), "identity_session").is_none()
+        {
+            self.pending = None;
+            return Err(MiotError::Authentication);
+        }
+        let identity: IdentityListResponse = decode_json(&identity_response.text().await?)?;
+        let options = identity
+            .options
+            .unwrap_or_else(|| vec![identity.flag.unwrap_or(4)]);
+        for flag in options {
+            let path = match flag {
+                4 => "/identity/auth/verifyPhone",
+                8 => "/identity/auth/verifyEmail",
+                _ => continue,
+            };
+            let response = self
+                .client
+                .post(Self::account_url(path)?)
+                .query(&[("_dc", now_millis().as_str())])
+                .form(&[
+                    ("_flag", flag.to_string()),
+                    ("ticket", proof.ticket.clone()),
+                    ("trust", "false".to_owned()),
+                    ("_json", "true".to_owned()),
+                ])
+                .send()
+                .await?;
+            if !response.status().is_success() {
+                continue;
+            }
+            let verified: VerificationResponse = decode_json(&response.text().await?)?;
+            if verified.code != 0 {
+                continue;
+            }
+            let location = verified.location.ok_or(MiotError::Authentication)?;
+            let initial = self.client.get(location).send().await?;
+            let initial_token = cookie_value(initial.headers(), "serviceToken");
+            let context = self.fetch_context().await?;
+            let location = context.location.ok_or(MiotError::Authentication)?;
+            return self
+                .finish_location(location, context.ssecurity, context.user_id, initial_token)
+                .await;
+        }
+        self.pending = None;
+        Err(MiotError::Authentication)
     }
 
     pub async fn submit_captcha(
@@ -184,7 +236,6 @@ impl CloudLoginClient {
             .client
             .get(Self::account_url("/pass/serviceLogin")?)
             .query(&[("sid", self.sid.as_str()), ("_json", "true")])
-            .header("User-Agent", self.user_agent())
             .send()
             .await?;
         if !response.status().is_success() {
@@ -200,6 +251,9 @@ impl CloudLoginClient {
             sid: value.sid.unwrap_or_else(|| self.sid.clone()),
             qs: value.qs.unwrap_or_default(),
             sign: value.sign.unwrap_or_default(),
+            ssecurity: value.ssecurity,
+            user_id: value.user_id,
+            location: value.location,
         })
     }
 
@@ -229,6 +283,7 @@ impl CloudLoginClient {
             .query(&[("_json", "true")])
             .form(&form);
         if captcha.is_some() {
+            request = request.query(&[("_dc", now_millis().as_str())]);
             if let Some(ick) = &pending.captcha_ick {
                 request = request.header(reqwest::header::COOKIE, format!("ick={ick}"));
             }
@@ -247,33 +302,20 @@ impl CloudLoginClient {
         let body = response.text().await?;
         let auth: AuthResponse = decode_json(&body)?;
         if let Some(location) = auth.location {
-            let pending = self
-                .pending
-                .take()
-                .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
-            let location = self.add_client_sign(location, auth.ssecurity.as_deref())?;
-            let final_response = self.client.get(location).send().await?;
-            let token = cookie_value(final_response.headers(), "serviceToken")
-                .ok_or(MiotError::Authentication)?;
-            let user_id = cookie_value(final_response.headers(), "userId")
-                .or(auth.user_id)
-                .unwrap_or(pending.account);
-            let ssecurity = auth.ssecurity.ok_or(MiotError::Protocol(
-                "cloud login response did not contain ssecurity",
-            ))?;
-            return Ok(CloudLoginOutcome::Success(CloudCredential {
-                user_id,
-                service_token: token,
-                ssecurity,
-            }));
+            return self
+                .finish_location(location, auth.ssecurity, auth.user_id, None)
+                .await;
         }
         if let Some(notification) = auth.notification_url {
             let url = Self::absolute_url(&notification)?;
+            if let Some(pending) = &mut self.pending {
+                pending.verification_url = Some(url.clone());
+            }
             return Ok(CloudLoginOutcome::VerificationRequired { url });
         }
         if let Some(captcha) = auth.captcha_url {
             let url = Self::absolute_url(&captcha)?;
-            let image_response = self.client.get(url).send().await?;
+            let image_response = self.client.get(url.clone()).send().await?;
             let ick = cookie_value(image_response.headers(), "ick");
             let image = image_response.bytes().await?.to_vec();
             let id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(getrandom_bytes()?);
@@ -282,6 +324,7 @@ impl CloudLoginClient {
             }
             return Ok(CloudLoginOutcome::CaptchaRequired(CaptchaChallenge {
                 id,
+                url,
                 image,
             }));
         }
@@ -298,11 +341,33 @@ impl CloudLoginClient {
             .or_else(|_| Url::parse(ACCOUNT_BASE)?.join(value))
             .map_err(|_| MiotError::Protocol("invalid cloud challenge URL"))
     }
-    fn user_agent(&self) -> String {
-        format!(
-            "Android-7.1.1-1.0.0-{} APP/xiaomi.smarthome",
-            self.device_id
-        )
+    async fn finish_location(
+        &mut self,
+        location: String,
+        ssecurity: Option<String>,
+        user_id: Option<String>,
+        initial_token: Option<String>,
+    ) -> Result<CloudLoginOutcome, MiotError> {
+        let pending = self
+            .pending
+            .take()
+            .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
+        let location = self.add_client_sign(location, ssecurity.as_deref())?;
+        let final_response = self.client.get(location).send().await?;
+        let token = cookie_value(final_response.headers(), "serviceToken")
+            .or(initial_token)
+            .ok_or(MiotError::Authentication)?;
+        let user_id = cookie_value(final_response.headers(), "userId")
+            .or(user_id)
+            .unwrap_or(pending.account);
+        let ssecurity = ssecurity.ok_or(MiotError::Protocol(
+            "cloud login response did not contain ssecurity",
+        ))?;
+        Ok(CloudLoginOutcome::Success(CloudCredential {
+            user_id,
+            service_token: token,
+            ssecurity,
+        }))
     }
     fn add_client_sign(
         &self,
@@ -344,6 +409,10 @@ struct ServiceLogin {
     qs: Option<String>,
     #[serde(rename = "_sign")]
     sign: Option<String>,
+    ssecurity: Option<String>,
+    #[serde(rename = "userId")]
+    user_id: Option<String>,
+    location: Option<String>,
 }
 #[derive(Deserialize)]
 struct AuthResponse {
@@ -355,6 +424,16 @@ struct AuthResponse {
     #[serde(rename = "userId")]
     user_id: Option<String>,
     ssecurity: Option<String>,
+}
+#[derive(Deserialize)]
+struct IdentityListResponse {
+    flag: Option<i64>,
+    options: Option<Vec<i64>>,
+}
+#[derive(Deserialize)]
+struct VerificationResponse {
+    code: i64,
+    location: Option<String>,
 }
 
 fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, MiotError> {
@@ -378,4 +457,11 @@ fn getrandom_bytes() -> Result<[u8; 16], MiotError> {
     getrandom::fill(&mut bytes)
         .map_err(|_| MiotError::Protocol("secure random generation failed"))?;
     Ok(bytes)
+}
+fn now_millis() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .to_string()
 }
