@@ -46,7 +46,7 @@ impl OAuthCredential {
 #[derive(Debug)]
 pub struct OAuthLoginClient {
     client: reqwest::Client,
-    client_id: String,
+    client_id: u64,
     redirect_url: Url,
     region: String,
     device_id: String,
@@ -67,10 +67,13 @@ impl OAuthLoginClient {
         region: impl Into<String>,
         device_id: impl Into<String>,
     ) -> Result<Self, MiotError> {
-        let client_id = client_id.into();
+        let client_id = client_id
+            .into()
+            .parse()
+            .map_err(|_| MiotError::InvalidInput("OAuth client ID must be numeric"))?;
         let region = region.into();
         let device_id = device_id.into();
-        if client_id.is_empty() || region.is_empty() || device_id.is_empty() {
+        if region.is_empty() || device_id.is_empty() {
             return Err(MiotError::InvalidInput(
                 "OAuth configuration must not be empty",
             ));
@@ -80,7 +83,7 @@ impl OAuthLoginClient {
             client_id,
             redirect_url,
             region,
-            device_id,
+            device_id: format!("ha.{device_id}"),
             pending: None,
         })
     }
@@ -95,7 +98,7 @@ impl OAuthLoginClient {
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("redirect_uri", self.redirect_url.as_str());
-            query.append_pair("client_id", &self.client_id);
+            query.append_pair("client_id", &self.client_id.to_string());
             query.append_pair("response_type", "code");
             query.append_pair("device_id", &self.device_id);
             query.append_pair("state", &state);
@@ -153,7 +156,15 @@ impl OAuthLoginClient {
         &self,
         extra: [(&str, &str); N],
     ) -> Result<OAuthCredential, MiotError> {
-        let data = serde_json::json!({ "client_id": self.client_id, "redirect_uri": self.redirect_url.as_str(), "device_id": self.device_id, "code": extra.iter().find(|(key, _)| *key == "code").map(|(_, value)| *value), "refresh_token": extra.iter().find(|(key, _)| *key == "refresh_token").map(|(_, value)| *value) });
+        let mut data = serde_json::Map::new();
+        data.insert("client_id".to_owned(), serde_json::json!(self.client_id));
+        data.insert(
+            "redirect_uri".to_owned(),
+            serde_json::json!(self.redirect_url.as_str()),
+        );
+        for (key, value) in extra {
+            data.insert(key.to_owned(), serde_json::json!(value));
+        }
         let response = self
             .client
             .get(self.oauth_url(TOKEN_PATH)?)
@@ -161,7 +172,7 @@ impl OAuthLoginClient {
                 reqwest::header::CONTENT_TYPE,
                 "application/x-www-form-urlencoded",
             )
-            .query(&[("data", data.to_string())])
+            .query(&[("data", serde_json::Value::Object(data).to_string())])
             .send()
             .await?;
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
@@ -243,14 +254,14 @@ mod tests {
     #[test]
     fn token_endpoint_uses_the_home_assistant_api_domain() {
         let cn = OAuthLoginClient::new(
-            "client",
+            "1",
             Url::parse("http://homeassistant.local:8123/").expect("valid URL"),
             "cn",
             "device",
         )
         .expect("valid client");
         let us = OAuthLoginClient::new(
-            "client",
+            "1",
             Url::parse("http://homeassistant.local:8123/").expect("valid URL"),
             "us",
             "device",
@@ -264,6 +275,30 @@ mod tests {
         assert_eq!(
             us.oauth_url(TOKEN_PATH).expect("valid endpoint").as_str(),
             "https://us.ha.api.io.mi.com/app/v2/ha/oauth/get_token"
+        );
+    }
+
+    #[test]
+    fn authorization_request_uses_the_home_assistant_device_id_format() {
+        let mut client = OAuthLoginClient::new(
+            "2882303761520251711",
+            Url::parse("http://homeassistant.local:8123/").expect("valid URL"),
+            "cn",
+            "device-id",
+        )
+        .expect("valid client");
+
+        let query: std::collections::HashMap<_, _> = client
+            .authorization_url(OAuthAuthorizationRequest::default())
+            .expect("valid authorization URL")
+            .query_pairs()
+            .into_owned()
+            .collect();
+
+        assert_eq!(query.get("device_id"), Some(&"ha.device-id".to_owned()));
+        assert_eq!(
+            query.get("client_id"),
+            Some(&"2882303761520251711".to_owned())
         );
     }
 
