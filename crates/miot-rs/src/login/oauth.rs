@@ -3,6 +3,7 @@
 use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
+use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -93,7 +94,7 @@ impl OAuthLoginClient {
         &mut self,
         request: OAuthAuthorizationRequest,
     ) -> Result<Url, MiotError> {
-        let state = random_state()?;
+        let state = home_assistant_state(&self.device_id);
         let mut url = Url::parse(AUTHORIZATION_URL)
             .map_err(|_| MiotError::Protocol("invalid OAuth authorization endpoint"))?;
         {
@@ -238,19 +239,13 @@ struct TokenResult {
     expires_in: u64,
 }
 
-fn random_state() -> Result<String, MiotError> {
-    let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes)
-        .map_err(|_| MiotError::Protocol("secure random generation failed"))?;
-    Ok(base64::Engine::encode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        bytes,
-    ))
-}
-
 fn home_assistant_device_id(identifier: &str) -> String {
     let digest = Sha256::digest(identifier.as_bytes());
     format!("ha.{digest:x}")[..35].to_owned()
+}
+
+fn home_assistant_state(device_id: &str) -> String {
+    format!("{:x}", Sha1::digest(format!("d={device_id}").as_bytes()))
 }
 
 #[cfg(test)]
@@ -308,6 +303,10 @@ mod tests {
         assert_eq!(
             query.get("client_id"),
             Some(&"2882303761520251711".to_owned())
+        );
+        assert_eq!(
+            query.get("state"),
+            Some(&"c4f205a6ba60b608c936d241ffdf3b9c373ea918".to_owned())
         );
     }
 

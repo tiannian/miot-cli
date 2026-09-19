@@ -32,7 +32,7 @@ impl OAuthLoginClient {
 }
 ```
 
-调用 `authorization_url` 后，客户端仅在内存中保存本次授权的 `state`、回调地址和有效期。`complete_callback` 必须先验证回调中的 `state`，再读取授权码并向 OAuth token 端点交换 `access_token`、`refresh_token` 和过期信息。回调被消费、过期或校验失败后，该临时状态立即失效，不能再次交换。刷新使用 `refresh_token`，并以新的 `OAuthCredential` 返回给调用方；客户端不得替换任何外部存储中的旧凭据。
+调用 `authorization_url` 后，客户端仅在内存中保存本次授权的 `state`、回调地址和有效期。为兼容小米 Home Assistant OAuth 服务，`state` 由该服务要求的 `sha1("d=" + device_id)` 生成。`complete_callback` 必须先验证回调中的 `state`，再读取授权码并向 OAuth token 端点交换 `access_token`、`refresh_token` 和过期信息。回调被消费、过期或校验失败后，该临时状态立即失效，不能再次交换。刷新使用 `refresh_token`，并以新的 `OAuthCredential` 返回给调用方；客户端不得替换任何外部存储中的旧凭据。
 
 CLI 的 OAuth 模式优先启动临时 loopback callback；无法监听端口时，可以让用户粘贴完整回调 URL。浏览器授权 URL、授权码和回调 URL 都可能包含敏感信息，不能写入日志或 JSON 输出。
 
