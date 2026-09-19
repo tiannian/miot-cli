@@ -301,6 +301,8 @@ impl CloudLoginClient {
             .await?;
         let status = response.status();
         let body = response.text().await?;
+        println!("cloud_login service_login_status: {status}");
+        println!("cloud_login service_login_response: {body}");
         if !status.is_success() {
             return Err(authentication_response(status, &body));
         }
