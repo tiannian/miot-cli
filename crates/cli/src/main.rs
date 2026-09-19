@@ -46,7 +46,7 @@ struct LoginArguments {
     /// Sign in with USERNAME:PASSWORD.
     #[arg(long)]
     userpass: Option<String>,
-    /// Read USERNAME:PASSWORD from standard input.
+    /// Read username and password from separate standard-input lines.
     #[arg(long)]
     userpass_stdin: bool,
     /// Sign in through the OAuth authorization-code flow.
@@ -138,13 +138,9 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
 }
 
 fn read_userpass_stdin() -> Result<String, Box<dyn Error>> {
-    let mut userpass = String::new();
-    io::stdin().read_line(&mut userpass)?;
-    let userpass = userpass.trim_end_matches(['\r', '\n']).to_owned();
-    if userpass.is_empty() {
-        return Err("standard input must contain USERNAME:PASSWORD".into());
-    }
-    Ok(userpass)
+    let username = read_line("username> ")?;
+    let password = read_line("password> ")?;
+    Ok(format!("{username}:{password}"))
 }
 
 async fn login_with_userpass(
