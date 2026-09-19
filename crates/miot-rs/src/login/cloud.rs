@@ -221,7 +221,6 @@ impl CloudLoginClient {
             let initial = self.client.get(location).send().await?;
             let initial_status = initial.status();
             let initial_url = initial.url().clone();
-            let mut initial_token = cookie_value(initial.headers(), "serviceToken");
             let initial_body = initial.text().await?;
             if !initial_status.is_success() {
                 self.pending = None;
@@ -230,7 +229,6 @@ impl CloudLoginClient {
             if let Some(skip_url) = confirm_phone_skip_url(&initial_url)? {
                 let skipped = self.client.get(skip_url).send().await?;
                 let skipped_status = skipped.status();
-                initial_token = cookie_value(skipped.headers(), "serviceToken").or(initial_token);
                 let skipped_body = skipped.text().await?;
                 if !skipped_status.is_success() {
                     self.pending = None;
@@ -240,13 +238,7 @@ impl CloudLoginClient {
             let context = self.fetch_context().await?;
             let location = context.location.ok_or(MiotError::Authentication)?;
             return self
-                .finish_location(
-                    location,
-                    context.ssecurity,
-                    context.user_id,
-                    initial_token,
-                    None,
-                )
+                .finish_location(location, context.ssecurity, context.user_id, None)
                 .await;
         }
         self.pending = None;
@@ -340,7 +332,7 @@ impl CloudLoginClient {
         let auth: AuthResponse = decode_json(&body)?;
         if let Some(location) = auth.location {
             return self
-                .finish_location(location, auth.ssecurity, auth.user_id, None, auth.nonce)
+                .finish_location(location, auth.ssecurity, auth.user_id, auth.nonce)
                 .await;
         }
         if let Some(notification) = auth.notification_url {
@@ -393,7 +385,6 @@ impl CloudLoginClient {
         location: String,
         ssecurity: Option<String>,
         user_id: Option<String>,
-        initial_token: Option<String>,
         nonce: Option<String>,
     ) -> Result<CloudLoginOutcome, MiotError> {
         let pending = self
@@ -401,9 +392,17 @@ impl CloudLoginClient {
             .take()
             .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
         let location = self.add_client_sign(location, ssecurity.as_deref(), nonce.as_deref())?;
-        let final_response = self.client.get(location).send().await?;
+        let final_response = self
+            .client
+            .get(location)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .send()
+            .await?;
         let status = final_response.status();
-        let token = cookie_value(final_response.headers(), "serviceToken").or(initial_token);
+        let token = cookie_value(final_response.headers(), "serviceToken");
         let response_user_id = cookie_value(final_response.headers(), "userId");
         let body = final_response.text().await?;
         if !status.is_success() {
