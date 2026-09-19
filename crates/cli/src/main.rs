@@ -195,7 +195,7 @@ async fn login_with_userpass(
             }
             CloudLoginOutcome::VerificationRequired { url } => {
                 println!(
-                    "Complete account verification in a browser, then paste the verification ticket:"
+                    "Open this page and send an SMS or email verification code. Do not complete verification in the browser; paste the received code here:"
                 );
                 println!("{url}");
                 let ticket = read_line("ticket> ")?;
