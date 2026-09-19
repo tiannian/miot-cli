@@ -7,7 +7,7 @@ use url::Url;
 
 use super::MiotError;
 
-const OAUTH_DOMAIN: &str = "oauth2.xiaomi.com";
+const OAUTH_API_DOMAIN: &str = "ha.api.io.mi.com";
 const AUTHORIZATION_URL: &str = "https://account.xiaomi.com/oauth2/authorize";
 const TOKEN_PATH: &str = "/app/v2/ha/oauth/get_token";
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
@@ -157,6 +157,10 @@ impl OAuthLoginClient {
         let response = self
             .client
             .get(self.oauth_url(TOKEN_PATH)?)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .query(&[("data", data.to_string())])
             .send()
             .await?;
@@ -189,9 +193,9 @@ impl OAuthLoginClient {
         Url::parse(&format!(
             "https://{}{path}",
             if self.region == "cn" {
-                OAUTH_DOMAIN.to_owned()
+                OAUTH_API_DOMAIN.to_owned()
             } else {
-                format!("{}.{}", self.region, OAUTH_DOMAIN)
+                format!("{}.{}", self.region, OAUTH_API_DOMAIN)
             }
         ))
         .map_err(|_| MiotError::InvalidInput("invalid OAuth endpoint"))
@@ -218,4 +222,36 @@ fn random_state() -> Result<String, MiotError> {
         &base64::engine::general_purpose::URL_SAFE_NO_PAD,
         bytes,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_endpoint_uses_the_home_assistant_api_domain() {
+        let cn = OAuthLoginClient::new(
+            "client",
+            Url::parse("http://homeassistant.local:8123/").expect("valid URL"),
+            "cn",
+            "device",
+        )
+        .expect("valid client");
+        let us = OAuthLoginClient::new(
+            "client",
+            Url::parse("http://homeassistant.local:8123/").expect("valid URL"),
+            "us",
+            "device",
+        )
+        .expect("valid client");
+
+        assert_eq!(
+            cn.oauth_url(TOKEN_PATH).expect("valid endpoint").as_str(),
+            "https://ha.api.io.mi.com/app/v2/ha/oauth/get_token"
+        );
+        assert_eq!(
+            us.oauth_url(TOKEN_PATH).expect("valid endpoint").as_str(),
+            "https://us.ha.api.io.mi.com/app/v2/ha/oauth/get_token"
+        );
+    }
 }
