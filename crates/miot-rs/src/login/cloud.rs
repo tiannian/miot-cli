@@ -28,6 +28,7 @@ pub struct VerificationProof {
 impl VerificationProof {
     #[must_use]
     pub fn new(ticket: String) -> Self {
+        trace_entry("VerificationProof::new");
         Self { ticket }
     }
 }
@@ -53,14 +54,17 @@ pub struct CloudCredential {
 impl CloudCredential {
     #[must_use]
     pub fn user_id(&self) -> &str {
+        trace_entry("CloudCredential::user_id");
         &self.user_id
     }
     #[must_use]
     pub fn service_token(&self) -> &str {
+        trace_entry("CloudCredential::service_token");
         &self.service_token
     }
     #[must_use]
     pub fn ssecurity(&self) -> &str {
+        trace_entry("CloudCredential::ssecurity");
         &self.ssecurity
     }
 }
@@ -109,6 +113,7 @@ impl CloudLoginClient {
         sid: impl Into<String>,
         device_id: impl Into<String>,
     ) -> Result<Self, MiotError> {
+        trace_entry("CloudLoginClient::new");
         let region = region.into();
         let sid = sid.into();
         let device_id = device_id.into();
@@ -140,6 +145,7 @@ impl CloudLoginClient {
     /// Returns the configured Xiaomi cloud region.
     #[must_use]
     pub fn region(&self) -> &str {
+        trace_entry("CloudLoginClient::region");
         &self.region
     }
 
@@ -147,6 +153,7 @@ impl CloudLoginClient {
         &mut self,
         request: CloudLoginRequest,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        trace_entry("CloudLoginClient::login");
         if request.account.is_empty() || request.password.is_empty() {
             return Err(MiotError::InvalidInput(
                 "account and password must not be empty",
@@ -168,6 +175,7 @@ impl CloudLoginClient {
         &mut self,
         proof: VerificationProof,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        trace_entry("CloudLoginClient::continue_verification");
         let verify_url = self
             .pending
             .as_ref()
@@ -249,6 +257,7 @@ impl CloudLoginClient {
         &mut self,
         captcha: String,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        trace_entry("CloudLoginClient::submit_captcha");
         if captcha.is_empty() {
             return Err(MiotError::InvalidInput("captcha must not be empty"));
         }
@@ -256,6 +265,7 @@ impl CloudLoginClient {
     }
 
     async fn fetch_context(&self) -> Result<LoginContext, MiotError> {
+        trace_entry("CloudLoginClient::fetch_context");
         let response = self
             .client
             .get(Self::account_url("/pass/serviceLogin")?)
@@ -286,6 +296,7 @@ impl CloudLoginClient {
         &mut self,
         captcha: Option<&str>,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        trace_entry("CloudLoginClient::authenticate");
         let pending = self
             .pending
             .as_ref()
@@ -324,6 +335,7 @@ impl CloudLoginClient {
         &mut self,
         response: reqwest::Response,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        trace_entry("CloudLoginClient::finish_auth_response");
         let password_md5 = self
             .pending
             .as_ref()
@@ -385,10 +397,12 @@ impl CloudLoginClient {
     }
 
     fn account_url(path: &str) -> Result<Url, MiotError> {
+        trace_entry("CloudLoginClient::account_url");
         Url::parse(&format!("{ACCOUNT_BASE}{path}"))
             .map_err(|_| MiotError::Protocol("invalid account endpoint"))
     }
     fn absolute_url(value: &str) -> Result<Url, MiotError> {
+        trace_entry("CloudLoginClient::absolute_url");
         Url::parse(value)
             .or_else(|_| Url::parse(ACCOUNT_BASE)?.join(value))
             .map_err(|_| MiotError::Protocol("invalid cloud challenge URL"))
@@ -400,6 +414,7 @@ impl CloudLoginClient {
         user_id: Option<String>,
         nonce: Option<String>,
     ) -> Result<CloudLoginOutcome, MiotError> {
+        trace_entry("CloudLoginClient::finish_location");
         let pending = self
             .pending
             .take()
@@ -438,6 +453,7 @@ impl CloudLoginClient {
         ssecurity: Option<&str>,
         response_nonce: Option<&str>,
     ) -> Result<String, MiotError> {
+        trace_entry("CloudLoginClient::add_client_sign");
         if self.sid == "xiaomiio" {
             return Ok(location);
         }
@@ -505,10 +521,12 @@ struct VerificationResponse {
 }
 
 fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, MiotError> {
+    trace_entry("decode_json");
     serde_json::from_str(text.trim_start_matches("&&&START&&&"))
         .map_err(|_| MiotError::Protocol("cloud login returned an invalid response"))
 }
 fn cookie_value(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
+    trace_entry("cookie_value");
     headers
         .get_all(reqwest::header::SET_COOKIE)
         .iter()
@@ -521,12 +539,14 @@ fn cookie_value(headers: &reqwest::header::HeaderMap, name: &str) -> Option<Stri
         })
 }
 fn getrandom_bytes() -> Result<[u8; 16], MiotError> {
+    trace_entry("getrandom_bytes");
     let mut bytes = [0; 16];
     getrandom::fill(&mut bytes)
         .map_err(|_| MiotError::Protocol("secure random generation failed"))?;
     Ok(bytes)
 }
 fn now_millis() -> String {
+    trace_entry("now_millis");
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -535,6 +555,7 @@ fn now_millis() -> String {
 }
 
 fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
+    trace_entry("authentication_response");
     authentication_response_with_password_md5(status, body, None)
 }
 
@@ -543,6 +564,7 @@ fn authentication_response_with_password_md5(
     body: &str,
     password_md5: Option<String>,
 ) -> MiotError {
+    trace_entry("authentication_response_with_password_md5");
     let body = body.trim_start_matches("&&&START&&&");
     let value = serde_json::from_str::<serde_json::Value>(body).ok();
     let code = value
@@ -559,6 +581,7 @@ fn authentication_response_with_password_md5(
 }
 
 fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
+    trace_entry("confirm_phone_skip_url");
     if !url.path().starts_with("/fe/") {
         return Ok(None);
     }
@@ -568,6 +591,10 @@ fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
     CloudLoginClient::absolute_url(&value)
         .map(Some)
         .map_err(|_| MiotError::Protocol("invalid cloud verification skip URL"))
+}
+
+fn trace_entry(function: &str) {
+    println!("cloud_login entered: {function}");
 }
 
 #[cfg(test)]
