@@ -172,6 +172,7 @@ impl CloudLoginClient {
         self.authenticate(None).await
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn continue_verification(
         &mut self,
         proof: VerificationProof,
@@ -212,6 +213,7 @@ impl CloudLoginClient {
                 8 => "/identity/auth/verifyEmail",
                 _ => continue,
             };
+            println!("cloud_login verification_method: flag={flag}, path={path}");
             let mut request = self
                 .client
                 .post(Self::account_url(path)?)
@@ -233,6 +235,10 @@ impl CloudLoginClient {
                 return Err(authentication_response(status, &body));
             }
             let verified: VerificationResponse = decode_json(&body)?;
+            println!(
+                "cloud_login verification_response: flag={flag}, code={}",
+                verified.code
+            );
             if verified.code != 0 {
                 last_failure = Some((status, body));
                 continue;
