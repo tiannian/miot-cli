@@ -291,7 +291,7 @@ impl CloudLoginClient {
             .as_ref()
             .ok_or(MiotError::Protocol("no active cloud login"))?;
         let password_hash = format!("{:X}", Md5::digest(pending.password.as_bytes()));
-        eprintln!("password_md5: {password_hash}");
+        println!("password_md5: {password_hash}");
         let mut form = vec![
             ("user", pending.account.as_str()),
             ("hash", password_hash.as_str()),
