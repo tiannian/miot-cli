@@ -202,6 +202,7 @@ impl CloudLoginClient {
         let options = identity
             .options
             .unwrap_or_else(|| vec![identity.flag.unwrap_or(4)]);
+        let mut last_failure = None;
         for flag in options {
             let path = match flag {
                 4 => "/identity/auth/verifyPhone",
@@ -228,8 +229,8 @@ impl CloudLoginClient {
             }
             let verified: VerificationResponse = decode_json(&body)?;
             if verified.code != 0 {
-                self.pending = None;
-                return Err(authentication_response(status, &body));
+                last_failure = Some((status, body));
+                continue;
             }
             let location = verified
                 .location
@@ -262,6 +263,9 @@ impl CloudLoginClient {
                 .await;
         }
         self.pending = None;
+        if let Some((status, body)) = last_failure {
+            return Err(authentication_response(status, &body));
+        }
         Err(MiotError::Authentication)
     }
 
