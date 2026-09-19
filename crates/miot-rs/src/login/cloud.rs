@@ -474,67 +474,16 @@ fn now_millis() -> String {
 }
 
 fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
-    let value =
-        serde_json::from_str::<serde_json::Value>(body.trim_start_matches("&&&START&&&")).ok();
+    let body = body.trim_start_matches("&&&START&&&");
+    let value = serde_json::from_str::<serde_json::Value>(body).ok();
     let code = value
         .as_ref()
         .and_then(|value| value.get("code"))
         .and_then(serde_json::Value::as_i64);
-    let response = value.map_or_else(
-        || redact_text(body),
-        |mut value| {
-            redact_response(&mut value);
-            value.to_string()
-        },
-    );
+    let response = value.map_or_else(|| body.to_owned(), |value| value.to_string());
     MiotError::AuthenticationResponse {
         status: status.as_u16(),
         code,
         response: response.chars().take(4096).collect(),
     }
-}
-
-fn redact_response(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(object) => {
-            for (key, value) in object {
-                if is_sensitive_key(key) {
-                    *value = serde_json::Value::String("[REDACTED]".to_owned());
-                } else {
-                    redact_response(value);
-                }
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                redact_response(value);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn redact_text(text: &str) -> String {
-    text.replace("serviceToken", "[REDACTED]")
-        .replace("ssecurity", "[REDACTED]")
-        .replace("passToken", "[REDACTED]")
-}
-
-fn is_sensitive_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    [
-        "password",
-        "hash",
-        "token",
-        "security",
-        "ticket",
-        "cookie",
-        "location",
-        "callback",
-        "sign",
-        "qs",
-        "serviceparam",
-    ]
-    .iter()
-    .any(|fragment| key.contains(fragment))
 }
