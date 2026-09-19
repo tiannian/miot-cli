@@ -5,7 +5,7 @@ mod oauth;
 
 pub use cloud::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
-    VerificationProof,
+    QrLoginChallenge, VerificationProof,
 };
 pub use oauth::{OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient};
 

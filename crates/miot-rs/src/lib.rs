@@ -7,7 +7,8 @@ pub mod login;
 
 pub use login::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
-    MiotError, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, VerificationProof,
+    MiotError, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge,
+    VerificationProof,
 };
 
 /// Returns the SDK version compiled into the current binary.

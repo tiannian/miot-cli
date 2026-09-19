@@ -41,7 +41,7 @@ enum AuthSubcommand {
 }
 
 #[derive(Args)]
-#[command(group(ArgGroup::new("login_mode").required(true).args(["userpass", "userpass_stdin", "oauth"])))]
+#[command(group(ArgGroup::new("login_mode").required(true).args(["userpass", "userpass_stdin", "oauth", "qr"])))]
 struct LoginArguments {
     /// Sign in with USERNAME:PASSWORD.
     #[arg(long)]
@@ -52,6 +52,9 @@ struct LoginArguments {
     /// Sign in through the OAuth authorization-code flow.
     #[arg(long)]
     oauth: bool,
+    /// Sign in by scanning a Xiaomi Home QR code.
+    #[arg(long)]
+    qr: bool,
     /// Xiaomi cloud region.
     #[arg(long, default_value = "cn")]
     region: String,
@@ -122,6 +125,8 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
     } else if arguments.userpass_stdin {
         let userpass = read_userpass_stdin()?;
         login_with_userpass(&arguments, &userpass).await?
+    } else if arguments.qr {
+        login_with_qr(&arguments).await?
     } else {
         login_with_oauth(&arguments).await?
     };
@@ -139,6 +144,36 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
         serde_json::to_string_pretty(&result.credential)?
     );
     Ok(())
+}
+
+async fn login_with_qr(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
+    let device_id = arguments
+        .device_id
+        .clone()
+        .unwrap_or_else(generate_xiaomi_client_id);
+    let mut client = CloudLoginClient::new(&arguments.region, &arguments.sid, &device_id)?;
+    let challenge = client.begin_qr_login().await?;
+    println!("Scan this Xiaomi Home QR login URL:");
+    println!("{}", challenge.login_url);
+    if let Some(image_url) = challenge.image_url {
+        println!("QR image: {image_url}");
+    }
+    println!("Waiting for confirmation in Xiaomi Home...");
+    let credential = match client.wait_for_qr_login().await? {
+        CloudLoginOutcome::Success(credential) => credential,
+        CloudLoginOutcome::VerificationRequired { .. } | CloudLoginOutcome::CaptchaRequired(_) => {
+            return Err("QR login returned an unexpected verification challenge".into());
+        }
+    };
+    Ok(LoginResult {
+        account_id: credential.user_id().to_owned(),
+        credential: StoredCredential::Cloud {
+            user_id: credential.user_id().to_owned(),
+            service_token: credential.service_token().to_owned(),
+            ssecurity: credential.ssecurity().to_owned(),
+            device_id,
+        },
+    })
 }
 
 fn read_userpass_stdin() -> Result<String, Box<dyn Error>> {
