@@ -165,9 +165,10 @@ async fn login_with_userpass(
 }
 
 async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
+    let redirect_url = oauth_redirect_url(&arguments.redirect_url)?;
     let mut client = OAuthLoginClient::new(
         &arguments.client_id,
-        arguments.redirect_url.clone(),
+        redirect_url,
         &arguments.region,
         &arguments.device_id,
     )?;
@@ -188,6 +189,19 @@ async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box
         account_id: arguments.client_id.clone(),
         credential: stored_oauth_credential(&credential)?,
     })
+}
+
+fn oauth_redirect_url(base_url: &Url) -> Result<Url, Box<dyn Error>> {
+    if base_url.path() != "/" || base_url.query().is_some() || base_url.fragment().is_some() {
+        return Ok(base_url.clone());
+    }
+
+    let mut bytes = [0_u8; 8];
+    getrandom::fill(&mut bytes).map_err(|_| io::Error::other("secure random generation failed"))?;
+    let webhook_id = u64::from_le_bytes(bytes);
+    let mut redirect_url = base_url.clone();
+    redirect_url.set_path(&format!("/api/webhook/{webhook_id}"));
+    Ok(redirect_url)
 }
 
 fn stored_oauth_credential(

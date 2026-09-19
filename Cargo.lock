@@ -653,6 +653,7 @@ name = "miot"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "getrandom",
  "miot-rs",
  "serde",
  "serde_json",
