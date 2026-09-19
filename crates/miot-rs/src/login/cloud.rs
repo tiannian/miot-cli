@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use base64::Engine;
 use md5::{Digest, Md5};
+use reqwest::cookie::CookieStore;
 use serde::Deserialize;
 use sha1::Sha1;
 use url::Url;
@@ -202,6 +203,8 @@ impl CloudLoginClient {
         let options = identity
             .options
             .unwrap_or_else(|| vec![identity.flag.unwrap_or(4)]);
+        println!("cloud_login verification_options: {options:?}");
+        let verification_cookie = self.verification_cookie_header()?;
         let mut last_failure = None;
         for flag in options {
             let path = match flag {
@@ -209,7 +212,7 @@ impl CloudLoginClient {
                 8 => "/identity/auth/verifyEmail",
                 _ => continue,
             };
-            let response = self
+            let mut request = self
                 .client
                 .post(Self::account_url(path)?)
                 .query(&[("_dc", now_millis().as_str())])
@@ -218,9 +221,11 @@ impl CloudLoginClient {
                     ("ticket", proof.ticket.clone()),
                     ("trust", "false".to_owned()),
                     ("_json", "true".to_owned()),
-                ])
-                .send()
-                .await?;
+                ]);
+            if let Some(cookie) = &verification_cookie {
+                request = request.header(reqwest::header::COOKIE, cookie);
+            }
+            let response = request.send().await?;
             let status = response.status();
             let body = response.text().await?;
             if !status.is_success() {
@@ -303,6 +308,23 @@ impl CloudLoginClient {
             user_id: value.user_id,
             location: value.location,
         })
+    }
+
+    fn verification_cookie_header(&self) -> Result<Option<String>, MiotError> {
+        trace_entry("CloudLoginClient::verification_cookie_header");
+        let account_url = Self::account_url("/")?;
+        let cookie_header = self
+            .jar
+            .cookies(&account_url)
+            .and_then(|header| header.to_str().ok().map(ToOwned::to_owned));
+        let cookie_names = cookie_header.as_deref().map_or_else(Vec::new, |header| {
+            header
+                .split(';')
+                .filter_map(|cookie| cookie.trim().split_once('=').map(|(name, _)| name))
+                .collect::<Vec<_>>()
+        });
+        println!("cloud_login verification_cookie_names: {cookie_names:?}");
+        Ok(cookie_header)
     }
 
     async fn authenticate(
