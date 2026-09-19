@@ -284,7 +284,7 @@ impl CloudLoginClient {
             location,
             auth.ssecurity,
             json_string_or_number(auth.user_id),
-            auth.nonce,
+            json_string_or_number(auth.nonce),
         )
         .await
     }
@@ -522,7 +522,12 @@ impl CloudLoginClient {
         let user_id = json_string_or_number(auth.user_id);
         if let Some(location) = auth.location.filter(|location| !location.is_empty()) {
             return self
-                .finish_location(location, auth.ssecurity, user_id, auth.nonce)
+                .finish_location(
+                    location,
+                    auth.ssecurity,
+                    user_id,
+                    json_string_or_number(auth.nonce),
+                )
                 .await;
         }
         if let Some(notification) = auth.notification_url.filter(|url| !url.is_empty()) {
@@ -720,7 +725,7 @@ struct AuthResponse {
     #[serde(rename = "userId")]
     user_id: Option<serde_json::Value>,
     ssecurity: Option<String>,
-    nonce: Option<String>,
+    nonce: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct QrLoginStartResponse {
