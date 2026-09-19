@@ -143,8 +143,20 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
 
 fn read_userpass_stdin() -> Result<String, Box<dyn Error>> {
     let username = read_line("username> ")?;
-    let password = read_line("password> ")?;
+    let password = read_password_line("password> ")?;
     Ok(format!("{username}:{password}"))
+}
+
+fn read_password_line(prompt: &str) -> Result<String, Box<dyn Error>> {
+    print!("{prompt}");
+    io::stdout().flush()?;
+    let mut value = String::new();
+    io::stdin().read_line(&mut value)?;
+    let value = value.trim_end_matches(['\r', '\n']).to_owned();
+    if value.is_empty() {
+        return Err("a value is required".into());
+    }
+    Ok(value)
 }
 
 async fn login_with_userpass(
