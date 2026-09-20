@@ -324,21 +324,14 @@ impl CloudLoginClient {
         let verification_cookie = self.verification_cookie_header()?;
         let mut last_failure = None;
         for flag in options {
-            let path = match flag {
-                4 => "/identity/auth/verifyPhone",
-                8 => "/identity/auth/verifyEmail",
-                _ => continue,
+            let Some((path, form)) = verification_request(flag, &proof.ticket) else {
+                continue;
             };
             let mut request = self
                 .client
                 .post(Self::account_url(path)?)
                 .query(&[("_dc", now_millis().as_str())])
-                .form(&[
-                    ("_flag", flag.to_string()),
-                    ("ticket", proof.ticket.clone()),
-                    ("trust", "false".to_owned()),
-                    ("_json", "true".to_owned()),
-                ]);
+                .form(&form);
             if let Some(cookie) = &verification_cookie {
                 request = request.header(reqwest::header::COOKIE, cookie);
             }
@@ -719,6 +712,37 @@ struct VerificationResponse {
     location: Option<String>,
 }
 
+fn verification_request(
+    flag: i64,
+    ticket: &str,
+) -> Option<(&'static str, Vec<(&'static str, String)>)> {
+    let common = vec![("_flag", flag.to_string()), ("ticket", ticket.to_owned())];
+    match flag {
+        4 => Some((
+            "/identity/auth/verifyPhone",
+            common
+                .into_iter()
+                .chain([("trust", "false".to_owned()), ("_json", "true".to_owned())])
+                .collect(),
+        )),
+        8 => Some((
+            "/identity/auth/verifyEmail",
+            common
+                .into_iter()
+                .chain([("trust", "false".to_owned()), ("_json", "true".to_owned())])
+                .collect(),
+        )),
+        33_554_432 => Some((
+            "/identity/auth/deviceAuth",
+            common
+                .into_iter()
+                .chain([("type", "vcode".to_owned()), ("_json", "true".to_owned())])
+                .collect(),
+        )),
+        _ => None,
+    }
+}
+
 fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, MiotError> {
     trace_entry("decode_json");
     serde_json::from_str(text.trim_start_matches("&&&START&&&"))
@@ -841,6 +865,22 @@ fn trace_entry(function: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_confirmation_uses_device_auth_payload() {
+        let (path, form) =
+            verification_request(33_554_432, "638922").expect("device confirmation is supported");
+        assert_eq!(path, "/identity/auth/deviceAuth");
+        assert_eq!(
+            form,
+            vec![
+                ("_flag", "33554432".to_owned()),
+                ("ticket", "638922".to_owned()),
+                ("type", "vcode".to_owned()),
+                ("_json", "true".to_owned()),
+            ]
+        );
+    }
 
     #[test]
     fn service_login_context_is_usable_when_server_returns_70016() {

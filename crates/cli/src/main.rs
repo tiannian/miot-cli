@@ -225,7 +225,7 @@ async fn login_with_userpass(
             }
             CloudLoginOutcome::VerificationRequired { url } => {
                 println!(
-                    "Open this page and complete the required verification. Paste an SMS or email code below. Already signed-in device confirmation requires a dedicated continuation flow and cannot be completed by retrying this login."
+                    "Open this page and complete the required verification. Paste the SMS, email, or device-confirmation code below."
                 );
                 println!("{url}");
                 match read_optional_line("ticket (or press Enter to cancel)> ")? {
@@ -235,10 +235,7 @@ async fn login_with_userpass(
                             .await?;
                     }
                     None => {
-                        return Err(
-                            "device-confirmation continuation is not implemented; retrying login would discard the active verification transaction"
-                                .into(),
-                        );
+                        return Err("verification cancelled; retrying login would discard the active verification transaction".into());
                     }
                 }
             }
