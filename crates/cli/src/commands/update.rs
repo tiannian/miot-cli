@@ -4,7 +4,7 @@ use clap::Args;
 use miot_rs::{ApiClient, HomeDeviceListQuery};
 use serde_json::Value;
 
-use crate::credentials::{load_cloud_credential, state_directory, write_json};
+use crate::credentials::{load_cloud_credential, state_directory, write_toml};
 
 #[derive(Args)]
 pub struct UpdateArguments {
@@ -26,7 +26,7 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
     let (account_id, credential) = load_cloud_credential(arguments.account.as_deref())?;
     let client = ApiClient::new(&arguments.region, credential)?;
     let homes = client.home_merged().await?;
-    write_json(&state_directory()?.join("homes.json"), &homes)?;
+    write_toml(&state_directory()?.join("homes.toml"), &homes)?;
     let homes_to_update = homes
         .get("homelist")
         .or_else(|| homes.get("home_list"))
@@ -37,10 +37,10 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
         let home_id = required_i64(home, &["id", "home_id"])?;
         let home_owner = required_i64(home, &["owner_id", "home_owner", "uid"])?;
         let devices = update_home_devices(&client, home_owner, home_id).await?;
-        write_json(
+        write_toml(
             &state_directory()?
                 .join("devices")
-                .join(format!("{home_id}.json")),
+                .join(format!("{home_id}.toml")),
             &devices,
         )?;
         updated += 1;

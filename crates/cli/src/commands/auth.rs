@@ -12,7 +12,7 @@ use miot_rs::{
 };
 use url::Url;
 
-use crate::credentials::{StoredCredential, credential_path};
+use crate::credentials::{StoredCredential, credential_path, write_toml};
 
 const HA_OAUTH_CLIENT_ID: &str = "2882303761520251711";
 const HA_OAUTH_REDIRECT_URL: &str = "http://homeassistant.local:8123";
@@ -93,10 +93,7 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
         result.account_id = account_id;
     }
     let path = credential_path(&result.account_id)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&path, serde_json::to_vec_pretty(&result.credential)?)?;
+    write_toml(&path, &result.credential)?;
     println!("Login succeeded. Credential saved to {}.", path.display());
     Ok(())
 }

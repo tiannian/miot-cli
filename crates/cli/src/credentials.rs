@@ -24,14 +24,14 @@ pub fn load_cloud_credential(
 ) -> Result<(String, CloudCredential), Box<dyn Error>> {
     let accounts_directory = state_directory()?.join("accounts");
     let path = if let Some(account) = account {
-        accounts_directory.join(format!("{}.json", filename_component(account)))
+        accounts_directory.join(format!("{}.toml", filename_component(account)))
     } else {
         let mut paths = fs::read_dir(&accounts_directory)?
             .filter_map(Result::ok)
             .map(|entry| entry.path())
             .filter(|path| {
                 path.extension()
-                    .is_some_and(|extension| extension == "json")
+                    .is_some_and(|extension| extension == "toml")
             })
             .collect::<Vec<_>>();
         paths.sort();
@@ -41,7 +41,7 @@ pub fn load_cloud_credential(
             _ => return Err("multiple saved accounts found; specify one with --account".into()),
         }
     };
-    let stored: StoredCredential = serde_json::from_slice(&fs::read(&path)?)?;
+    let stored: StoredCredential = toml::from_str(&fs::read_to_string(&path)?)?;
     let StoredCredential::Cloud {
         user_id,
         service_token,
@@ -62,10 +62,10 @@ pub fn load_cloud_credential(
     ))
 }
 
-pub fn write_json(path: &std::path::Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
+pub fn write_toml(path: &std::path::Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
     let parent = path.parent().ok_or("state path has no parent directory")?;
     fs::create_dir_all(parent)?;
-    fs::write(path, serde_json::to_vec_pretty(value)?)?;
+    fs::write(path, toml::to_string_pretty(value)?)?;
     Ok(())
 }
 
@@ -77,7 +77,7 @@ pub fn state_directory() -> Result<PathBuf, Box<dyn Error>> {
 pub fn credential_path(account_id: &str) -> Result<PathBuf, Box<dyn Error>> {
     Ok(state_directory()?
         .join("accounts")
-        .join(format!("{}.json", filename_component(account_id))))
+        .join(format!("{}.toml", filename_component(account_id))))
 }
 
 pub fn filename_component(value: &str) -> String {
@@ -95,5 +95,30 @@ pub fn filename_component(value: &str) -> String {
         "account".to_owned()
     } else {
         component
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StoredCredential, write_toml};
+
+    #[test]
+    fn writes_credentials_as_toml() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("account.toml");
+        let credential = StoredCredential::Cloud {
+            user_id: "user".to_owned(),
+            service_token: "token".to_owned(),
+            ssecurity: "security".to_owned(),
+            device_id: "device".to_owned(),
+        };
+
+        write_toml(&path, &credential).unwrap();
+
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert!(contents.contains("kind = \"cloud\""));
+        assert!(!contents.trim_start().starts_with('{'));
+        let restored: StoredCredential = toml::from_str(&contents).unwrap();
+        assert!(matches!(restored, StoredCredential::Cloud { .. }));
     }
 }
