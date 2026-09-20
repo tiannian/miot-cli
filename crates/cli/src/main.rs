@@ -175,12 +175,14 @@ async fn update_home_devices(
         let page = client.home_device_list(&query).await?;
         let list = page
             .get("list")
+            .or_else(|| page.get("device_info"))
             .and_then(Value::as_array)
-            .ok_or("cloud home device response did not contain list")?;
+            .ok_or("cloud home device response did not contain device list")?;
         devices.extend(list.iter().cloned());
         let next_start_did = page
             .get("next_start_did")
             .or_else(|| page.get("start_did"))
+            .or_else(|| page.get("max_did"))
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .map(str::to_owned);
@@ -210,7 +212,7 @@ async fn update_home_devices(
 
 fn required_i64(home: &Value, keys: &[&str]) -> Result<i64, Box<dyn Error>> {
     keys.iter()
-        .find_map(|key| home.get(key).and_then(Value::as_i64))
+        .find_map(|key| home.get(key).and_then(value_as_i64))
         .ok_or_else(|| {
             format!(
                 "cloud home record did not contain any of {}",
@@ -218,6 +220,13 @@ fn required_i64(home: &Value, keys: &[&str]) -> Result<i64, Box<dyn Error>> {
             )
             .into()
         })
+}
+
+fn value_as_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+        .or_else(|| value.as_str().and_then(|number| number.parse().ok()))
 }
 
 fn load_cloud_credential(
@@ -516,5 +525,19 @@ fn filename_component(value: &str) -> String {
         "account".to_owned()
     } else {
         component
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::required_i64;
+    use serde_json::json;
+
+    #[test]
+    fn reads_numeric_home_identifiers_from_cloud_response_strings() {
+        let home = json!({ "id": "123", "uid": "456" });
+
+        assert_eq!(required_i64(&home, &["id", "home_id"]).unwrap(), 123);
+        assert_eq!(required_i64(&home, &["owner_id", "uid"]).unwrap(), 456);
     }
 }
