@@ -27,6 +27,9 @@ miot auth login --region cn --userpass 'USERNAME:PASSWORD'
 # 避免密码出现在命令参数和 shell 历史记录中
 printf '%s\n%s\n' 'USERNAME' 'PASSWORD' | miot auth login --region cn --userpass-stdin
 
+# 更新家庭状态及每个家庭下的设备列表
+miot update --account <ACCOUNT_ID> --region cn
+
 # List devices
 miot devices list
 
@@ -50,6 +53,8 @@ miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 `--userpass` 按照 `hass-xiaomi-miot` 的小米账号登录协议请求服务。未传入 `--device-id` 时，CLI 会生成与该参考实现相同格式的 16 位大写字母和数字 client ID，并将它和凭据一同保存。若小米要求图形验证码，CLI 会将图片写入系统临时目录并提示路径；输入验证码后临时图片会删除。若要求账号二次验证，先在终端显示的 URL 中完成验证，再将页面给出的 verification ticket 粘贴回终端。
 
 不要将含密码的命令写入 shell 历史记录或共享的脚本。建议使用 `--userpass-stdin`，从标准输入依次读取账号和密码两行。登录成功后，凭据保存在 `~/.local/miot.rs/accounts/`。
+
+执行 `miot update` 会使用已保存的云端登录凭据更新家庭数据，并将家庭聚合状态写入 `~/.local/miot.rs/homes.json`，将每个家庭的完整设备列表写入 `~/.local/miot.rs/devices/<home-id>.json`。有多个已保存账号时必须使用 `--account` 指定账号；只有一个账号时可省略该参数。
 
 Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 

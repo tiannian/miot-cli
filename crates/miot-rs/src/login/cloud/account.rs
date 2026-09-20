@@ -54,6 +54,20 @@ pub struct CloudCredential {
 }
 
 impl CloudCredential {
+    /// Rebuilds a cloud credential from values previously stored by an application.
+    #[must_use]
+    pub fn new(
+        user_id: impl Into<String>,
+        service_token: impl Into<String>,
+        ssecurity: impl Into<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id.into(),
+            service_token: service_token.into(),
+            ssecurity: ssecurity.into(),
+        }
+    }
+
     #[must_use]
     pub fn user_id(&self) -> &str {
         trace_entry("CloudCredential::user_id");

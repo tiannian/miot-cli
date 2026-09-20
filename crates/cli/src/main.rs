@@ -8,10 +8,12 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use miot_rs::{
-    CloudLoginClient, CloudLoginOutcome, CloudLoginRequest, OAuthAuthorizationRequest,
-    OAuthCredential, OAuthLoginClient, VerificationProof,
+    ApiClient, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
+    HomeDeviceListQuery, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient,
+    VerificationProof,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use url::Url;
 
 const HA_OAUTH_CLIENT_ID: &str = "2882303761520251711";
@@ -27,6 +29,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Auth(AuthCommand),
+    Update(UpdateArguments),
+}
+
+#[derive(Args)]
+struct UpdateArguments {
+    /// Account identifier passed to `miot auth login --account`.
+    #[arg(long)]
+    account: Option<String>,
+    /// Xiaomi cloud region.
+    #[arg(long, default_value = "cn")]
+    region: String,
 }
 
 #[derive(Args)]
@@ -78,7 +91,7 @@ struct LoginArguments {
     account: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum StoredCredential {
     OAuth {
@@ -112,11 +125,155 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Some(Command::Auth(AuthCommand {
             command: AuthSubcommand::Login(arguments),
         })) => login(arguments).await,
+        Some(Command::Update(arguments)) => update(arguments).await,
         None => {
             println!("miot {}", miot_rs::version());
             Ok(())
         }
     }
+}
+
+async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
+    let (account_id, credential) = load_cloud_credential(arguments.account.as_deref())?;
+    let client = ApiClient::new(&arguments.region, credential)?;
+    let homes = client.home_merged().await?;
+    write_json(&state_directory()?.join("homes.json"), &homes)?;
+
+    let homes_to_update = homes
+        .get("homelist")
+        .or_else(|| homes.get("home_list"))
+        .and_then(Value::as_array)
+        .ok_or("cloud home response did not contain homelist")?;
+    let mut updated = 0_usize;
+    for home in homes_to_update {
+        let home_id = required_i64(home, &["id", "home_id"])?;
+        let home_owner = required_i64(home, &["owner_id", "home_owner", "uid"])?;
+        let devices = update_home_devices(&client, home_owner, home_id).await?;
+        write_json(
+            &state_directory()?
+                .join("devices")
+                .join(format!("{home_id}.json")),
+            &devices,
+        )?;
+        updated += 1;
+    }
+    println!(
+        "Updated {updated} home(s) for account {account_id}. State saved to {}.",
+        state_directory()?.display()
+    );
+    Ok(())
+}
+
+async fn update_home_devices(
+    client: &ApiClient,
+    home_owner: i64,
+    home_id: i64,
+) -> Result<Value, Box<dyn Error>> {
+    let mut query = HomeDeviceListQuery::new(home_owner, home_id);
+    let mut devices = Vec::new();
+    loop {
+        let page = client.home_device_list(&query).await?;
+        let list = page
+            .get("list")
+            .and_then(Value::as_array)
+            .ok_or("cloud home device response did not contain list")?;
+        devices.extend(list.iter().cloned());
+        let next_start_did = page
+            .get("next_start_did")
+            .or_else(|| page.get("start_did"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        if !page
+            .get("has_more")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        let Some(next_start_did) = next_start_did else {
+            return Err(
+                "cloud home device response indicated more pages without next_start_did".into(),
+            );
+        };
+        if next_start_did == query.start_did {
+            return Err("cloud home device pagination did not advance".into());
+        }
+        query.start_did = next_start_did;
+    }
+    Ok(serde_json::json!({
+        "home_id": home_id,
+        "home_owner": home_owner,
+        "devices": devices,
+    }))
+}
+
+fn required_i64(home: &Value, keys: &[&str]) -> Result<i64, Box<dyn Error>> {
+    keys.iter()
+        .find_map(|key| home.get(key).and_then(Value::as_i64))
+        .ok_or_else(|| {
+            format!(
+                "cloud home record did not contain any of {}",
+                keys.join(", ")
+            )
+            .into()
+        })
+}
+
+fn load_cloud_credential(
+    account: Option<&str>,
+) -> Result<(String, CloudCredential), Box<dyn Error>> {
+    let accounts_directory = state_directory()?.join("accounts");
+    let path = match account {
+        Some(account) => accounts_directory.join(format!("{}.json", filename_component(account))),
+        None => {
+            let mut paths = fs::read_dir(&accounts_directory)?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.extension()
+                        .is_some_and(|extension| extension == "json")
+                })
+                .collect::<Vec<_>>();
+            paths.sort();
+            match paths.as_slice() {
+                [path] => path.clone(),
+                [] => return Err("no saved account found; run `miot auth login` first".into()),
+                _ => return Err("multiple saved accounts found; specify one with --account".into()),
+            }
+        }
+    };
+    let stored: StoredCredential = serde_json::from_slice(&fs::read(&path)?)?;
+    let StoredCredential::Cloud {
+        user_id,
+        service_token,
+        ssecurity,
+        device_id: _,
+    } = stored
+    else {
+        return Err("the selected account does not have a Xiaomi cloud credential".into());
+    };
+    let account_id = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .ok_or("saved account path has no valid file name")?
+        .to_owned();
+    Ok((
+        account_id,
+        CloudCredential::new(user_id, service_token, ssecurity),
+    ))
+}
+
+fn write_json(path: &std::path::Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
+    let parent = path.parent().ok_or("state path has no parent directory")?;
+    fs::create_dir_all(parent)?;
+    fs::write(path, serde_json::to_vec_pretty(value)?)?;
+    Ok(())
+}
+
+fn state_directory() -> Result<PathBuf, Box<dyn Error>> {
+    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".local/miot.rs"))
 }
 
 async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
