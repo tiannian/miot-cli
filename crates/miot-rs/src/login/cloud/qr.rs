@@ -22,6 +22,10 @@ pub(super) struct QrLoginPending {
 
 impl CloudLoginClient {
     /// Starts a Xiaomi Home QR login transaction.
+    ///
+    /// # Errors
+    ///
+    /// 返回认证服务不可用、响应无效，或无法构造登录链接时的错误。
     pub async fn begin_qr_login(&mut self) -> Result<QrLoginChallenge, MiotError> {
         trace_entry("CloudLoginClient::begin_qr_login");
         self.pending = None;
@@ -86,6 +90,10 @@ impl CloudLoginClient {
     }
 
     /// Waits for the active QR login transaction to be confirmed in Xiaomi Home.
+    ///
+    /// # Errors
+    ///
+    /// 返回不存在活动登录事务、认证失败、网络超时或服务响应无效时的错误。
     pub async fn wait_for_qr_login(&mut self) -> Result<CloudLoginOutcome, MiotError> {
         trace_entry("CloudLoginClient::wait_for_qr_login");
         let pending = self
