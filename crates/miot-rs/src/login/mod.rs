@@ -26,6 +26,11 @@ pub enum MiotError {
         code: i64,
         message: String,
     },
+    CloudApiResponse {
+        status: u16,
+        code: Option<i64>,
+        message: String,
+    },
     VerificationRequired,
     CaptchaRequired,
     Network(reqwest::Error),
@@ -58,6 +63,22 @@ impl fmt::Display for MiotError {
                 return write!(
                     formatter,
                     "authorization failed (server code {code}): {message}"
+                );
+            }
+            Self::CloudApiResponse {
+                status,
+                code,
+                message,
+            } => {
+                if let Some(code) = code {
+                    return write!(
+                        formatter,
+                        "cloud API request failed (HTTP {status}, server code {code}): {message}"
+                    );
+                }
+                return write!(
+                    formatter,
+                    "cloud API request failed (HTTP {status}): {message}"
                 );
             }
             Self::VerificationRequired => "verification is required",

@@ -3,8 +3,10 @@
 //! Protocol clients and services will be added incrementally. The CLI crate
 //! depends on this crate instead of accessing protocol implementations directly.
 
+pub mod api;
 pub mod login;
 
+pub use api::{ApiClient, HomeDeviceListQuery};
 pub use login::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
     MiotError, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge,
