@@ -10,7 +10,7 @@ pub use api::{ApiClient, HomeDeviceListQuery};
 pub use login::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
     MiotError, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge,
-    VerificationProof,
+    QrLoginClient, VerificationProof,
 };
 
 /// Returns the SDK version compiled into the current binary.

@@ -3,12 +3,12 @@ use url::Url;
 
 use super::super::MiotError;
 use super::account::{
-    AuthResponse, CloudCredential, CloudLoginClient, CloudLoginOutcome, authentication_response,
-    cookie_value, decode_json, json_string_or_number, now_millis, trace_entry,
+    AuthResponse, CloudCredential, CloudLoginOutcome, absolute_url, account_url, add_client_sign,
+    authentication_response, cookie_value, decode_json, fetch_service_login_context,
+    json_string_or_number, now_millis, trace_entry,
 };
 
-/// A Xiaomi QR login challenge. Scan the image URL with the Xiaomi Home app, then wait for the
-/// login result on the same client instance.
+/// 小米扫码登录挑战。请用米家 App 扫描二维码，并在同一客户端实例上等待结果。
 #[derive(Clone, Debug)]
 pub struct QrLoginChallenge {
     pub login_url: Url,
@@ -16,28 +16,59 @@ pub struct QrLoginChallenge {
 }
 
 #[derive(Debug)]
-pub(super) struct QrLoginPending {
+struct QrLoginPending {
     poll_url: Url,
+    sid: String,
 }
 
-impl CloudLoginClient {
-    /// Starts a Xiaomi Home QR login transaction.
+/// 小米扫码登录客户端。一个实例只维护一条扫码登录会话。
+#[derive(Debug)]
+pub struct QrLoginClient {
+    client: reqwest::Client,
+    pending: Option<QrLoginPending>,
+}
+
+impl QrLoginClient {
+    /// 创建扫码登录客户端。
+    pub fn new(device_id: impl Into<String>) -> Result<Self, MiotError> {
+        trace_entry("QrLoginClient::new");
+        let device_id = device_id.into();
+        if device_id.is_empty() {
+            return Err(MiotError::InvalidInput("device ID must not be empty"));
+        }
+        let jar = std::sync::Arc::new(reqwest::cookie::Jar::default());
+        let account_url = account_url("/")?;
+        jar.add_cookie_str("sdkVersion=3.8.6", &account_url);
+        jar.add_cookie_str(&format!("deviceId={device_id}"), &account_url);
+        let user_agent = format!(
+            "Android-7.1.1-1.0.0-ONEPLUS A3010-136-{device_id} APP/xiaomi.smarthome APPV/62830"
+        );
+        let client = reqwest::Client::builder()
+            .cookie_provider(jar)
+            .user_agent(user_agent)
+            .build()?;
+        Ok(Self {
+            client,
+            pending: None,
+        })
+    }
+
+    /// 开始一条米家扫码登录事务。
     ///
     /// # Errors
     ///
-    /// 返回认证服务不可用、响应无效，或无法构造登录链接时的错误。
+    /// 当认证服务不可用、响应无效或无法构造登录链接时返回错误。
     pub async fn begin_qr_login(&mut self) -> Result<QrLoginChallenge, MiotError> {
-        trace_entry("CloudLoginClient::begin_qr_login");
+        trace_entry("QrLoginClient::begin_qr_login");
         self.pending = None;
-        self.qr_pending = None;
-        let context = self.fetch_context_for_sid("mijia").await?;
+        let context = fetch_service_login_context(&self.client, "mijia", "mijia").await?;
         let mut query = vec![
             ("theme", String::new()),
             ("bizDeviceType", String::new()),
             ("_hasLogo", "false".to_owned()),
             ("_qrsize", "240".to_owned()),
             ("_dc", now_millis()),
-            ("sid", context.sid),
+            ("sid", context.sid.clone()),
             ("qs", context.qs),
             ("_sign", context.sign),
             ("callback", context.callback),
@@ -62,7 +93,7 @@ impl CloudLoginClient {
         }
         let response = self
             .client
-            .get(Self::account_url("/longPolling/loginUrl")?)
+            .get(account_url("/longPolling/loginUrl")?)
             .query(&query)
             .send()
             .await?;
@@ -75,29 +106,32 @@ impl CloudLoginClient {
         if challenge.code != 0 {
             return Err(authentication_response(status, &body));
         }
-        let login_url = Self::absolute_url(&challenge.login_url)?;
-        let poll_url = Self::absolute_url(&challenge.poll_url)?;
+        let login_url = absolute_url(&challenge.login_url)?;
+        let poll_url = absolute_url(&challenge.poll_url)?;
         let image_url = challenge
             .image_url
             .as_deref()
-            .map(Self::absolute_url)
+            .map(absolute_url)
             .transpose()?;
-        self.qr_pending = Some(QrLoginPending { poll_url });
+        self.pending = Some(QrLoginPending {
+            poll_url,
+            sid: context.sid,
+        });
         Ok(QrLoginChallenge {
             login_url,
             image_url,
         })
     }
 
-    /// Waits for the active QR login transaction to be confirmed in Xiaomi Home.
+    /// 等待米家确认当前扫码登录事务。
     ///
     /// # Errors
     ///
-    /// 返回不存在活动登录事务、认证失败、网络超时或服务响应无效时的错误。
+    /// 当不存在活动事务、认证失败、网络超时或服务响应无效时返回错误。
     pub async fn wait_for_qr_login(&mut self) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::wait_for_qr_login");
+        trace_entry("QrLoginClient::wait_for_qr_login");
         let pending = self
-            .qr_pending
+            .pending
             .take()
             .ok_or(MiotError::Protocol("no active QR login"))?;
         let response = self
@@ -119,6 +153,7 @@ impl CloudLoginClient {
             "QR login response did not contain location",
         ))?;
         self.finish_qr_location(
+            &pending.sid,
             location,
             auth.ssecurity,
             json_string_or_number(auth.user_id),
@@ -129,13 +164,14 @@ impl CloudLoginClient {
 
     async fn finish_qr_location(
         &self,
+        sid: &str,
         location: String,
         ssecurity: Option<String>,
         user_id: Option<String>,
         nonce: Option<String>,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::finish_qr_location");
-        let location = self.add_client_sign(location, ssecurity.as_deref(), nonce.as_deref())?;
+        trace_entry("QrLoginClient::finish_qr_location");
+        let location = add_client_sign(sid, location, ssecurity.as_deref(), nonce.as_deref())?;
         let final_response = self
             .client
             .get(location)

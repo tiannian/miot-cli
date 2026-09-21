@@ -7,4 +7,4 @@ pub use account::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
     VerificationProof,
 };
-pub use qr::QrLoginChallenge;
+pub use qr::{QrLoginChallenge, QrLoginClient};

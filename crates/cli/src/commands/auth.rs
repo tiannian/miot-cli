@@ -8,7 +8,7 @@ use std::{
 use clap::{ArgGroup, Args, Subcommand};
 use miot_rs::{
     CloudLoginClient, CloudLoginOutcome, CloudLoginRequest, OAuthAuthorizationRequest,
-    OAuthCredential, OAuthLoginClient, VerificationProof,
+    OAuthCredential, OAuthLoginClient, QrLoginClient, VerificationProof,
 };
 use url::Url;
 
@@ -103,7 +103,7 @@ async fn login_with_qr(arguments: &LoginArguments) -> Result<LoginResult, Box<dy
         .device_id
         .clone()
         .unwrap_or_else(generate_xiaomi_client_id);
-    let mut client = CloudLoginClient::new(&arguments.region, &arguments.sid, &device_id)?;
+    let mut client = QrLoginClient::new(&device_id)?;
     let challenge = client.begin_qr_login().await?;
     println!(
         "Scan this Xiaomi Home QR login URL:\n{}",

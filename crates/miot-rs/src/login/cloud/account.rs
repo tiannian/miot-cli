@@ -10,8 +10,6 @@ use sha1::Sha1;
 use url::Url;
 
 use super::super::MiotError;
-use super::qr::QrLoginPending;
-
 const ACCOUNT_BASE: &str = "https://account.xiaomi.com";
 
 /// Input for a Xiaomi account-password login. It is intentionally consumed per attempt.
@@ -101,7 +99,6 @@ pub struct CloudLoginClient {
     region: String,
     sid: String,
     pub(super) pending: Option<PendingLogin>,
-    pub(super) qr_pending: Option<QrLoginPending>,
 }
 
 #[derive(Debug)]
@@ -143,7 +140,7 @@ impl CloudLoginClient {
             ));
         }
         let jar = Arc::new(reqwest::cookie::Jar::default());
-        let account_url = Self::account_url("/")?;
+        let account_url = account_url("/")?;
         jar.add_cookie_str("sdkVersion=3.8.6", &account_url);
         jar.add_cookie_str(&format!("deviceId={device_id}"), &account_url);
         let user_agent = format!(
@@ -159,7 +156,6 @@ impl CloudLoginClient {
             region,
             sid,
             pending: None,
-            qr_pending: None,
         })
     }
 
@@ -181,7 +177,6 @@ impl CloudLoginClient {
             ));
         }
         self.pending = None;
-        self.qr_pending = None;
         let context = self.fetch_context().await?;
         self.pending = Some(PendingLogin {
             account: request.account,
@@ -218,7 +213,7 @@ impl CloudLoginClient {
         if let Some(identity_session) = identity_session {
             self.jar.add_cookie_str(
                 &format!("identity_session={identity_session}"),
-                &Self::account_url("/")?,
+                &account_url("/")?,
             );
         }
         let identity: IdentityListResponse = decode_json(&identity_body)?;
@@ -233,7 +228,7 @@ impl CloudLoginClient {
             };
             let mut request = self
                 .client
-                .post(Self::account_url(path)?)
+                .post(account_url(path)?)
                 .query(&[("_dc", now_millis().as_str())])
                 .form(&form);
             if let Some(cookie) = &verification_cookie {
@@ -306,35 +301,12 @@ impl CloudLoginClient {
 
     pub(super) async fn fetch_context_for_sid(&self, sid: &str) -> Result<LoginContext, MiotError> {
         trace_entry("CloudLoginClient::fetch_context_for_sid");
-        let response = self
-            .client
-            .get(Self::account_url("/pass/serviceLogin")?)
-            .query(&[("sid", sid), ("_json", "true")])
-            .send()
-            .await?;
-        let status = response.status();
-        let body = response.text().await?;
-        if !status.is_success() {
-            return Err(authentication_response(status, &body));
-        }
-        let value: ServiceLogin = decode_json(&body)?;
-        Ok(LoginContext {
-            callback: value.callback.unwrap_or_default(),
-            sid: value.sid.unwrap_or_else(|| self.sid.clone()),
-            qs: value.qs.unwrap_or_default(),
-            sign: value.sign.unwrap_or_default(),
-            ssecurity: value.ssecurity,
-            nonce: json_string_or_number(value.nonce),
-            user_id: json_string_or_number(value.user_id),
-            cuser_id: json_string_or_number(value.cuser_id),
-            pass_token: value.pass_token,
-            location: value.location,
-        })
+        fetch_service_login_context(&self.client, sid, &self.sid).await
     }
 
     fn verification_cookie_header(&self) -> Result<Option<String>, MiotError> {
         trace_entry("CloudLoginClient::verification_cookie_header");
-        let account_url = Self::account_url("/")?;
+        let account_url = account_url("/")?;
         let cookie_header = self
             .jar
             .cookies(&account_url)
@@ -365,7 +337,7 @@ impl CloudLoginClient {
         }
         let mut request = self
             .client
-            .post(Self::account_url("/pass/serviceLoginAuth2")?)
+            .post(account_url("/pass/serviceLoginAuth2")?)
             .query(&[("_json", "true")])
             .form(&form);
         if captcha.is_some() {
@@ -374,7 +346,7 @@ impl CloudLoginClient {
                 // Put the CAPTCHA cookie into the jar instead of setting Cookie directly:
                 // a direct header would suppress the device and login-session cookies.
                 self.jar
-                    .add_cookie_str(&format!("ick={ick}"), &Self::account_url("/")?);
+                    .add_cookie_str(&format!("ick={ick}"), &account_url("/")?);
             }
         }
         self.finish_auth_response(request.send().await?).await
@@ -404,14 +376,14 @@ impl CloudLoginClient {
                 .await;
         }
         if let Some(notification) = auth.notification_url.filter(|url| !url.is_empty()) {
-            let url = Self::absolute_url(&notification)?;
+            let url = absolute_url(&notification)?;
             if let Some(pending) = &mut self.pending {
                 pending.verification_url = Some(url.clone());
             }
             return Ok(CloudLoginOutcome::VerificationRequired { url });
         }
         if let Some(captcha) = auth.captcha_url.filter(|url| !url.is_empty()) {
-            let url = Self::absolute_url(&captcha)?;
+            let url = absolute_url(&captcha)?;
             let image_response = self.client.get(url.clone()).send().await?;
             let ick = cookie_value(image_response.headers(), "ick");
             let image = image_response.bytes().await?.to_vec();
@@ -439,17 +411,6 @@ impl CloudLoginClient {
         Err(authentication_response(status, &body))
     }
 
-    pub(super) fn account_url(path: &str) -> Result<Url, MiotError> {
-        trace_entry("CloudLoginClient::account_url");
-        Url::parse(&format!("{ACCOUNT_BASE}{path}"))
-            .map_err(|_| MiotError::Protocol("invalid account endpoint"))
-    }
-    pub(super) fn absolute_url(value: &str) -> Result<Url, MiotError> {
-        trace_entry("CloudLoginClient::absolute_url");
-        Url::parse(value)
-            .or_else(|_| Url::parse(ACCOUNT_BASE)?.join(value))
-            .map_err(|_| MiotError::Protocol("invalid cloud challenge URL"))
-    }
     async fn finish_location(
         &mut self,
         location: String,
@@ -462,7 +423,8 @@ impl CloudLoginClient {
             .pending
             .take()
             .ok_or(MiotError::Protocol("cloud login state disappeared"))?;
-        let location = self.add_client_sign(location, ssecurity.as_deref(), nonce.as_deref())?;
+        let location =
+            add_client_sign(&self.sid, location, ssecurity.as_deref(), nonce.as_deref())?;
         let final_response = self
             .client
             .get(location)
@@ -490,41 +452,53 @@ impl CloudLoginClient {
             ssecurity,
         }))
     }
+}
 
-    pub(super) fn add_client_sign(
-        &self,
-        mut location: String,
-        ssecurity: Option<&str>,
-        response_nonce: Option<&str>,
-    ) -> Result<String, MiotError> {
-        trace_entry("CloudLoginClient::add_client_sign");
-        if self.sid == "xiaomiio" {
-            return Ok(location);
-        }
-        let secret = ssecurity.ok_or(MiotError::Protocol(
-            "cloud login response did not contain ssecurity",
-        ))?;
-        let nonce = response_nonce
-            .map(ToOwned::to_owned)
-            .or_else(|| {
-                Url::parse(&location).ok().and_then(|url| {
-                    url.query_pairs()
-                        .find(|(key, _)| key == "nonce")
-                        .map(|(_, value)| value.into_owned())
-                })
-            })
-            .ok_or(MiotError::Protocol(
-                "cloud login response did not contain nonce",
-            ))?;
-        let mut digest = Sha1::new();
-        digest.update(format!("nonce={nonce}&{secret}"));
-        let signature = base64::engine::general_purpose::STANDARD.encode(digest.finalize());
-        let mut url =
-            Url::parse(&location).map_err(|_| MiotError::Protocol("invalid cloud redirect"))?;
-        url.query_pairs_mut().append_pair("clientSign", &signature);
-        location = url.into();
-        Ok(location)
+pub(super) fn account_url(path: &str) -> Result<Url, MiotError> {
+    trace_entry("account_url");
+    Url::parse(&format!("{ACCOUNT_BASE}{path}"))
+        .map_err(|_| MiotError::Protocol("invalid account endpoint"))
+}
+
+pub(super) fn absolute_url(value: &str) -> Result<Url, MiotError> {
+    trace_entry("absolute_url");
+    Url::parse(value)
+        .or_else(|_| Url::parse(ACCOUNT_BASE)?.join(value))
+        .map_err(|_| MiotError::Protocol("invalid cloud challenge URL"))
+}
+
+pub(super) fn add_client_sign(
+    sid: &str,
+    location: String,
+    ssecurity: Option<&str>,
+    response_nonce: Option<&str>,
+) -> Result<String, MiotError> {
+    trace_entry("add_client_sign");
+    if sid == "xiaomiio" {
+        return Ok(location);
     }
+    let secret = ssecurity.ok_or(MiotError::Protocol(
+        "cloud login response did not contain ssecurity",
+    ))?;
+    let nonce = response_nonce
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            Url::parse(&location).ok().and_then(|url| {
+                url.query_pairs()
+                    .find(|(key, _)| key == "nonce")
+                    .map(|(_, value)| value.into_owned())
+            })
+        })
+        .ok_or(MiotError::Protocol(
+            "cloud login response did not contain nonce",
+        ))?;
+    let mut digest = Sha1::new();
+    digest.update(format!("nonce={nonce}&{secret}"));
+    let signature = base64::engine::general_purpose::STANDARD.encode(digest.finalize());
+    let mut url =
+        Url::parse(&location).map_err(|_| MiotError::Protocol("invalid cloud redirect"))?;
+    url.query_pairs_mut().append_pair("clientSign", &signature);
+    Ok(url.into())
 }
 
 #[derive(Deserialize)]
@@ -543,6 +517,36 @@ struct ServiceLogin {
     #[serde(rename = "passToken")]
     pass_token: Option<String>,
     location: Option<String>,
+}
+
+pub(super) async fn fetch_service_login_context(
+    client: &reqwest::Client,
+    sid: &str,
+    default_sid: &str,
+) -> Result<LoginContext, MiotError> {
+    let response = client
+        .get(account_url("/pass/serviceLogin")?)
+        .query(&[("sid", sid), ("_json", "true")])
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    if !status.is_success() {
+        return Err(authentication_response(status, &body));
+    }
+    let value: ServiceLogin = decode_json(&body)?;
+    Ok(LoginContext {
+        callback: value.callback.unwrap_or_default(),
+        sid: value.sid.unwrap_or_else(|| default_sid.to_owned()),
+        qs: value.qs.unwrap_or_default(),
+        sign: value.sign.unwrap_or_default(),
+        ssecurity: value.ssecurity,
+        nonce: json_string_or_number(value.nonce),
+        user_id: json_string_or_number(value.user_id),
+        cuser_id: json_string_or_number(value.cuser_id),
+        pass_token: value.pass_token,
+        location: value.location,
+    })
 }
 #[derive(Deserialize)]
 pub(super) struct AuthResponse {
@@ -709,7 +713,7 @@ fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
     let Some((_, value)) = url.query_pairs().find(|(key, _)| key == "skipUrl") else {
         return Ok(None);
     };
-    CloudLoginClient::absolute_url(&value)
+    absolute_url(&value)
         .map(Some)
         .map_err(|_| MiotError::Protocol("invalid cloud verification skip URL"))
 }
@@ -777,14 +781,13 @@ mod tests {
 
     #[test]
     fn client_sign_prefers_auth_response_nonce() {
-        let client = CloudLoginClient::new("cn", "micoapi", "device-id").expect("valid client");
-        let signed = client
-            .add_client_sign(
-                "https://example.test/callback?nonce=location-nonce".to_owned(),
-                Some("c2VjdXJpdHk="),
-                Some("response-nonce"),
-            )
-            .expect("client sign");
+        let signed = add_client_sign(
+            "micoapi",
+            "https://example.test/callback?nonce=location-nonce".to_owned(),
+            Some("c2VjdXJpdHk="),
+            Some("response-nonce"),
+        )
+        .expect("client sign");
         let url = Url::parse(&signed).expect("valid signed URL");
         let signature = url
             .query_pairs()
