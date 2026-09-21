@@ -232,7 +232,10 @@ impl CloudLoginClient {
         let identity_body = identity_response.text().await?;
         if !identity_status.is_success() || identity_session.is_none() {
             self.pending = None;
-            return Err(authentication_response(identity_status, &identity_body));
+            return Err(MiotError::authentication_response(
+                identity_status,
+                &identity_body,
+            ));
         }
         if let Some(identity_session) = identity_session {
             self.jar.add_cookie_str(
@@ -263,7 +266,7 @@ impl CloudLoginClient {
             let body = response.text().await?;
             if !status.is_success() {
                 self.pending = None;
-                return Err(authentication_response(status, &body));
+                return Err(MiotError::authentication_response(status, &body));
             }
             let verified: VerificationResponse = decode_json(&body)?;
             if verified.code != 0 {
@@ -280,7 +283,10 @@ impl CloudLoginClient {
             let initial_body = initial.text().await?;
             if !initial_status.is_success() {
                 self.pending = None;
-                return Err(authentication_response(initial_status, &initial_body));
+                return Err(MiotError::authentication_response(
+                    initial_status,
+                    &initial_body,
+                ));
             }
             if let Some(skip_url) = confirm_phone_skip_url(&initial_url)? {
                 let skipped = self.client.get(skip_url).send().await?;
@@ -288,7 +294,10 @@ impl CloudLoginClient {
                 let skipped_body = skipped.text().await?;
                 if !skipped_status.is_success() {
                     self.pending = None;
-                    return Err(authentication_response(skipped_status, &skipped_body));
+                    return Err(MiotError::authentication_response(
+                        skipped_status,
+                        &skipped_body,
+                    ));
                 }
             }
             let context = self.fetch_context().await?;
@@ -302,7 +311,7 @@ impl CloudLoginClient {
         }
         self.pending = None;
         if let Some((status, body)) = last_failure {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
         Err(MiotError::Authentication)
     }
@@ -403,7 +412,7 @@ impl CloudLoginClient {
         let body = response.text().await?;
         if !status.is_success() {
             self.pending = None;
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
         let auth: AuthResponse = decode_json(&body)?;
         let user_id = json_string_or_number(auth.user_id);
@@ -450,7 +459,7 @@ impl CloudLoginClient {
             }
         }
         self.pending = None;
-        Err(authentication_response(status, &body))
+        Err(MiotError::authentication_response(status, &body))
     }
 
     async fn finish_location(
@@ -484,9 +493,9 @@ impl CloudLoginClient {
         let response_user_id = cookie_value(final_response.headers(), "userId");
         let body = final_response.text().await?;
         if !status.is_success() {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
-        let token = token.ok_or_else(|| authentication_response(status, &body))?;
+        let token = token.ok_or_else(|| MiotError::authentication_response(status, &body))?;
         let user_id = response_user_id.or(user_id).unwrap_or(pending.account);
         let ssecurity = ssecurity.ok_or(MiotError::Protocol(
             "cloud login response did not contain ssecurity",
@@ -577,7 +586,7 @@ pub(super) async fn fetch_service_login_context(
     let status = response.status();
     let body = response.text().await?;
     if !status.is_success() {
-        return Err(authentication_response(status, &body));
+        return Err(MiotError::authentication_response(status, &body));
     }
     let value: ServiceLogin = decode_json(&body)?;
     Ok(LoginContext {
@@ -694,68 +703,6 @@ pub(super) fn now_millis() -> String {
         .to_string()
 }
 
-pub(super) fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
-    tracing::trace!(
-        function = "authentication_response",
-        "entered cloud login helper"
-    );
-    let body = body.trim_start_matches("&&&START&&&");
-    let value = serde_json::from_str::<serde_json::Value>(body).ok();
-    let code = value
-        .as_ref()
-        .and_then(|value| value.get("code"))
-        .and_then(serde_json::Value::as_i64);
-    let response = value.map_or_else(|| body.to_owned(), redact_sensitive_values);
-    MiotError::AuthenticationResponse {
-        status: status.as_u16(),
-        code,
-        response: response.chars().take(4096).collect(),
-    }
-}
-
-fn redact_sensitive_values(mut value: serde_json::Value) -> String {
-    redact_sensitive_value(&mut value);
-    value.to_string()
-}
-
-fn redact_sensitive_value(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(object) => {
-            for (key, value) in object {
-                if is_sensitive_key(key) {
-                    *value = serde_json::Value::String("[REDACTED]".to_owned());
-                } else {
-                    redact_sensitive_value(value);
-                }
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                redact_sensitive_value(value);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn is_sensitive_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    [
-        "token",
-        "password",
-        "secret",
-        "security",
-        "cookie",
-        "authorization",
-        "ticket",
-        "captcha",
-        "nonce",
-        "sign",
-    ]
-    .iter()
-    .any(|needle| key.contains(needle))
-}
-
 fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
     tracing::trace!(
         function = "confirm_phone_skip_url",
@@ -847,29 +794,5 @@ mod tests {
         let expected = base64::engine::general_purpose::STANDARD
             .encode(Sha1::digest(b"nonce=response-nonce&c2VjdXJpdHk="));
         assert_eq!(signature, expected);
-    }
-
-    #[test]
-    fn authentication_error_redacts_sensitive_response_fields() {
-        let error = authentication_response(
-            reqwest::StatusCode::UNAUTHORIZED,
-            r#"{"code":70016,"serviceToken":"secret"}"#,
-        );
-        assert_eq!(
-            error.to_string(),
-            "authentication failed (HTTP 401, server code 70016): {\"code\":70016,\"serviceToken\":\"[REDACTED]\"}"
-        );
-    }
-
-    #[test]
-    fn authentication_error_preserves_non_sensitive_response_fields() {
-        let error = authentication_response(
-            reqwest::StatusCode::BAD_REQUEST,
-            r#"{"code":42,"message":"invalid account","details":{"retry_after":60}}"#,
-        );
-        assert_eq!(
-            error.to_string(),
-            "authentication failed (HTTP 400, server code 42): {\"code\":42,\"details\":{\"retry_after\":60},\"message\":\"invalid account\"}"
-        );
     }
 }

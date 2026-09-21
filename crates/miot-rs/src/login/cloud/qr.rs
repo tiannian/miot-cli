@@ -3,8 +3,7 @@ use url::Url;
 
 use super::account::{
     AuthResponse, CloudCredential, CloudLoginOutcome, absolute_url, account_url, add_client_sign,
-    authentication_response, cookie_value, decode_json, fetch_service_login_context,
-    json_string_or_number, now_millis,
+    cookie_value, decode_json, fetch_service_login_context, json_string_or_number, now_millis,
 };
 use crate::MiotError;
 
@@ -106,11 +105,11 @@ impl QrLoginClient {
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
         let challenge: QrLoginStartResponse = decode_json(&body)?;
         if challenge.code != 0 {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
         let login_url = absolute_url(&challenge.login_url)?;
         let poll_url = absolute_url(&challenge.poll_url)?;
@@ -152,11 +151,11 @@ impl QrLoginClient {
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
         let auth: AuthResponse = decode_json(&body)?;
         if auth.code != Some(0) {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
         let location = auth.location.ok_or(MiotError::Protocol(
             "QR login response did not contain location",
@@ -184,9 +183,10 @@ impl QrLoginClient {
         let response_user_id = cookie_value(final_response.headers(), "userId");
         let body = final_response.text().await?;
         if !status.is_success() {
-            return Err(authentication_response(status, &body));
+            return Err(MiotError::authentication_response(status, &body));
         }
-        let service_token = token.ok_or_else(|| authentication_response(status, &body))?;
+        let service_token =
+            token.ok_or_else(|| MiotError::authentication_response(status, &body))?;
         let user_id = response_user_id.or(user_id).ok_or(MiotError::Protocol(
             "QR login response did not contain user ID",
         ))?;
