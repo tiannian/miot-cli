@@ -1,97 +1,58 @@
-//! Error types returned by MIoT SDK clients.
+//! Error types returned by `MIoT` SDK clients.
 
-use std::{error::Error, fmt};
+use thiserror::Error;
 
-/// An error returned by an MIoT SDK client. Authentication failures retain a bounded, redacted
+/// An error returned by an `MIoT` SDK client. Authentication failures retain a bounded, redacted
 /// server response for command-line debugging.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum MiotError {
+    #[error("authentication failed")]
     Authentication,
+    #[error(
+        "authentication failed{details}",
+        details = authentication_response_details(*status, *code, response)
+    )]
     AuthenticationResponse {
         status: u16,
         code: Option<i64>,
         response: String,
     },
+    #[error("authorization failed")]
     Authorization,
-    AuthorizationResponse {
-        code: i64,
-        message: String,
-    },
+    #[error("authorization failed (server code {code}): {message}")]
+    AuthorizationResponse { code: i64, message: String },
+    #[error(
+        "cloud API request failed{details}",
+        details = cloud_api_response_details(*status, *code, message)
+    )]
     CloudApiResponse {
         status: u16,
         code: Option<i64>,
         message: String,
     },
+    #[error("verification is required")]
     VerificationRequired,
+    #[error("captcha is required")]
     CaptchaRequired,
-    Network(reqwest::Error),
+    #[error("network request failed: {0}")]
+    Network(#[from] reqwest::Error),
+    #[error("{0}")]
     Protocol(&'static str),
+    #[error("{0}")]
     InvalidInput(&'static str),
 }
 
-impl fmt::Display for MiotError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message = match self {
-            Self::Authentication => "authentication failed",
-            Self::AuthenticationResponse {
-                status,
-                code,
-                response,
-            } => {
-                if let Some(code) = code {
-                    return write!(
-                        formatter,
-                        "authentication failed (HTTP {status}, server code {code}): {response}"
-                    );
-                }
-                return write!(
-                    formatter,
-                    "authentication failed (HTTP {status}): {response}"
-                );
-            }
-            Self::Authorization => "authorization failed",
-            Self::AuthorizationResponse { code, message } => {
-                return write!(
-                    formatter,
-                    "authorization failed (server code {code}): {message}"
-                );
-            }
-            Self::CloudApiResponse {
-                status,
-                code,
-                message,
-            } => {
-                if let Some(code) = code {
-                    return write!(
-                        formatter,
-                        "cloud API request failed (HTTP {status}, server code {code}): {message}"
-                    );
-                }
-                return write!(
-                    formatter,
-                    "cloud API request failed (HTTP {status}): {message}"
-                );
-            }
-            Self::VerificationRequired => "verification is required",
-            Self::CaptchaRequired => "captcha is required",
-            Self::Network(error) => return write!(formatter, "network request failed: {error}"),
-            Self::Protocol(message) | Self::InvalidInput(message) => message,
-        };
-        formatter.write_str(message)
-    }
+fn authentication_response_details(status: u16, code: Option<i64>, response: &str) -> String {
+    response_details(status, code, response)
 }
 
-impl Error for MiotError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Network(error) => Some(error),
-            _ => None,
-        }
-    }
+fn cloud_api_response_details(status: u16, code: Option<i64>, message: &str) -> String {
+    response_details(status, code, message)
 }
 
-impl From<reqwest::Error> for MiotError {
-    fn from(error: reqwest::Error) -> Self {
-        Self::Network(error)
+fn response_details(status: u16, code: Option<i64>, message: &str) -> String {
+    match code {
+        Some(code) => format!(" (HTTP {status}, server code {code}): {message}"),
+        None => format!(" (HTTP {status}): {message}"),
     }
 }
