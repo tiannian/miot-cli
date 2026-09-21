@@ -28,7 +28,10 @@ pub struct VerificationProof {
 impl VerificationProof {
     #[must_use]
     pub fn new(ticket: String) -> Self {
-        trace_entry("VerificationProof::new");
+        tracing::trace!(
+            function = "VerificationProof::new",
+            "entered cloud login helper"
+        );
         Self { ticket }
     }
 }
@@ -68,17 +71,26 @@ impl CloudCredential {
 
     #[must_use]
     pub fn user_id(&self) -> &str {
-        trace_entry("CloudCredential::user_id");
+        tracing::trace!(
+            function = "CloudCredential::user_id",
+            "entered cloud login helper"
+        );
         &self.user_id
     }
     #[must_use]
     pub fn service_token(&self) -> &str {
-        trace_entry("CloudCredential::service_token");
+        tracing::trace!(
+            function = "CloudCredential::service_token",
+            "entered cloud login helper"
+        );
         &self.service_token
     }
     #[must_use]
     pub fn ssecurity(&self) -> &str {
-        trace_entry("CloudCredential::ssecurity");
+        tracing::trace!(
+            function = "CloudCredential::ssecurity",
+            "entered cloud login helper"
+        );
         &self.ssecurity
     }
 }
@@ -130,7 +142,10 @@ impl CloudLoginClient {
         sid: impl Into<String>,
         device_id: impl Into<String>,
     ) -> Result<Self, MiotError> {
-        trace_entry("CloudLoginClient::new");
+        tracing::trace!(
+            function = "CloudLoginClient::new",
+            "entered cloud login helper"
+        );
         let region = region.into();
         let sid = sid.into();
         let device_id = device_id.into();
@@ -162,7 +177,10 @@ impl CloudLoginClient {
     /// Returns the configured Xiaomi cloud region.
     #[must_use]
     pub fn region(&self) -> &str {
-        trace_entry("CloudLoginClient::region");
+        tracing::trace!(
+            function = "CloudLoginClient::region",
+            "entered cloud login helper"
+        );
         &self.region
     }
 
@@ -170,7 +188,10 @@ impl CloudLoginClient {
         &mut self,
         request: CloudLoginRequest,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::login");
+        tracing::trace!(
+            function = "CloudLoginClient::login",
+            "entered cloud login helper"
+        );
         if request.account.is_empty() || request.password.is_empty() {
             return Err(MiotError::InvalidInput(
                 "account and password must not be empty",
@@ -193,7 +214,10 @@ impl CloudLoginClient {
         &mut self,
         proof: VerificationProof,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::continue_verification");
+        tracing::trace!(
+            function = "CloudLoginClient::continue_verification",
+            "entered cloud login helper"
+        );
         let verify_url = self
             .pending
             .as_ref()
@@ -287,7 +311,10 @@ impl CloudLoginClient {
         &mut self,
         captcha: String,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::submit_captcha");
+        tracing::trace!(
+            function = "CloudLoginClient::submit_captcha",
+            "entered cloud login helper"
+        );
         if captcha.is_empty() {
             return Err(MiotError::InvalidInput("captcha must not be empty"));
         }
@@ -295,17 +322,26 @@ impl CloudLoginClient {
     }
 
     async fn fetch_context(&self) -> Result<LoginContext, MiotError> {
-        trace_entry("CloudLoginClient::fetch_context");
+        tracing::trace!(
+            function = "CloudLoginClient::fetch_context",
+            "entered cloud login helper"
+        );
         self.fetch_context_for_sid(&self.sid).await
     }
 
     pub(super) async fn fetch_context_for_sid(&self, sid: &str) -> Result<LoginContext, MiotError> {
-        trace_entry("CloudLoginClient::fetch_context_for_sid");
+        tracing::trace!(
+            function = "CloudLoginClient::fetch_context_for_sid",
+            "entered cloud login helper"
+        );
         fetch_service_login_context(&self.client, sid, &self.sid).await
     }
 
     fn verification_cookie_header(&self) -> Result<Option<String>, MiotError> {
-        trace_entry("CloudLoginClient::verification_cookie_header");
+        tracing::trace!(
+            function = "CloudLoginClient::verification_cookie_header",
+            "entered cloud login helper"
+        );
         let account_url = account_url("/")?;
         let cookie_header = self
             .jar
@@ -318,7 +354,10 @@ impl CloudLoginClient {
         &mut self,
         captcha: Option<&str>,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::authenticate");
+        tracing::trace!(
+            function = "CloudLoginClient::authenticate",
+            "entered cloud login helper"
+        );
         let pending = self
             .pending
             .as_ref()
@@ -356,7 +395,10 @@ impl CloudLoginClient {
         &mut self,
         response: reqwest::Response,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::finish_auth_response");
+        tracing::trace!(
+            function = "CloudLoginClient::finish_auth_response",
+            "entered cloud login helper"
+        );
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
@@ -418,7 +460,10 @@ impl CloudLoginClient {
         user_id: Option<String>,
         nonce: Option<String>,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("CloudLoginClient::finish_location");
+        tracing::trace!(
+            function = "CloudLoginClient::finish_location",
+            "entered cloud login helper"
+        );
         let pending = self
             .pending
             .take()
@@ -455,13 +500,13 @@ impl CloudLoginClient {
 }
 
 pub(super) fn account_url(path: &str) -> Result<Url, MiotError> {
-    trace_entry("account_url");
+    tracing::trace!(function = "account_url", "entered cloud login helper");
     Url::parse(&format!("{ACCOUNT_BASE}{path}"))
         .map_err(|_| MiotError::Protocol("invalid account endpoint"))
 }
 
 pub(super) fn absolute_url(value: &str) -> Result<Url, MiotError> {
-    trace_entry("absolute_url");
+    tracing::trace!(function = "absolute_url", "entered cloud login helper");
     Url::parse(value)
         .or_else(|_| Url::parse(ACCOUNT_BASE)?.join(value))
         .map_err(|_| MiotError::Protocol("invalid cloud challenge URL"))
@@ -473,7 +518,7 @@ pub(super) fn add_client_sign(
     ssecurity: Option<&str>,
     response_nonce: Option<&str>,
 ) -> Result<String, MiotError> {
-    trace_entry("add_client_sign");
+    tracing::trace!(function = "add_client_sign", "entered cloud login helper");
     if sid == "xiaomiio" {
         return Ok(location);
     }
@@ -604,13 +649,16 @@ fn verification_request(
 }
 
 pub(super) fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, MiotError> {
-    trace_entry("decode_json");
+    tracing::trace!(function = "decode_json", "entered cloud login helper");
     serde_json::from_str(text.trim_start_matches("&&&START&&&"))
         .map_err(|_| MiotError::Protocol("cloud login returned an invalid response"))
 }
 
 pub(super) fn json_string_or_number(value: Option<serde_json::Value>) -> Option<String> {
-    trace_entry("json_string_or_number");
+    tracing::trace!(
+        function = "json_string_or_number",
+        "entered cloud login helper"
+    );
     match value? {
         serde_json::Value::String(value) => Some(value),
         serde_json::Value::Number(value) => Some(value.to_string()),
@@ -618,7 +666,7 @@ pub(super) fn json_string_or_number(value: Option<serde_json::Value>) -> Option<
     }
 }
 pub(super) fn cookie_value(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
-    trace_entry("cookie_value");
+    tracing::trace!(function = "cookie_value", "entered cloud login helper");
     headers
         .get_all(reqwest::header::SET_COOKIE)
         .iter()
@@ -631,14 +679,14 @@ pub(super) fn cookie_value(headers: &reqwest::header::HeaderMap, name: &str) -> 
         })
 }
 fn getrandom_bytes() -> Result<[u8; 16], MiotError> {
-    trace_entry("getrandom_bytes");
+    tracing::trace!(function = "getrandom_bytes", "entered cloud login helper");
     let mut bytes = [0; 16];
     getrandom::fill(&mut bytes)
         .map_err(|_| MiotError::Protocol("secure random generation failed"))?;
     Ok(bytes)
 }
 pub(super) fn now_millis() -> String {
-    trace_entry("now_millis");
+    tracing::trace!(function = "now_millis", "entered cloud login helper");
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -647,7 +695,10 @@ pub(super) fn now_millis() -> String {
 }
 
 pub(super) fn authentication_response(status: reqwest::StatusCode, body: &str) -> MiotError {
-    trace_entry("authentication_response");
+    tracing::trace!(
+        function = "authentication_response",
+        "entered cloud login helper"
+    );
     let body = body.trim_start_matches("&&&START&&&");
     let value = serde_json::from_str::<serde_json::Value>(body).ok();
     let code = value
@@ -706,7 +757,10 @@ fn is_sensitive_key(key: &str) -> bool {
 }
 
 fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
-    trace_entry("confirm_phone_skip_url");
+    tracing::trace!(
+        function = "confirm_phone_skip_url",
+        "entered cloud login helper"
+    );
     if !url.path().starts_with("/fe/") {
         return Ok(None);
     }
@@ -716,10 +770,6 @@ fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
     absolute_url(&value)
         .map(Some)
         .map_err(|_| MiotError::Protocol("invalid cloud verification skip URL"))
-}
-
-pub(super) fn trace_entry(function: &str) {
-    tracing::trace!(function, "entered cloud login helper");
 }
 
 #[cfg(test)]

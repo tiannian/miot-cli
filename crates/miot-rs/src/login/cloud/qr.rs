@@ -4,7 +4,7 @@ use url::Url;
 use super::account::{
     AuthResponse, CloudCredential, CloudLoginOutcome, absolute_url, account_url, add_client_sign,
     authentication_response, cookie_value, decode_json, fetch_service_login_context,
-    json_string_or_number, now_millis, trace_entry,
+    json_string_or_number, now_millis,
 };
 use crate::MiotError;
 
@@ -31,7 +31,10 @@ pub struct QrLoginClient {
 impl QrLoginClient {
     /// 创建扫码登录客户端。
     pub fn new(device_id: impl Into<String>) -> Result<Self, MiotError> {
-        trace_entry("QrLoginClient::new");
+        tracing::trace!(
+            function = "QrLoginClient::new",
+            "entered cloud login helper"
+        );
         let device_id = device_id.into();
         if device_id.is_empty() {
             return Err(MiotError::InvalidInput("device ID must not be empty"));
@@ -59,7 +62,10 @@ impl QrLoginClient {
     ///
     /// 当认证服务不可用、响应无效或无法构造登录链接时返回错误。
     pub async fn begin_qr_login(&mut self) -> Result<QrLoginChallenge, MiotError> {
-        trace_entry("QrLoginClient::begin_qr_login");
+        tracing::trace!(
+            function = "QrLoginClient::begin_qr_login",
+            "entered cloud login helper"
+        );
         self.pending = None;
         let context = fetch_service_login_context(&self.client, "mijia", "mijia").await?;
         let mut query = vec![
@@ -129,7 +135,10 @@ impl QrLoginClient {
     ///
     /// 当不存在活动事务、认证失败、网络超时或服务响应无效时返回错误。
     pub async fn wait_for_qr_login(&mut self) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("QrLoginClient::wait_for_qr_login");
+        tracing::trace!(
+            function = "QrLoginClient::wait_for_qr_login",
+            "entered cloud login helper"
+        );
         let pending = self
             .pending
             .take()
@@ -170,7 +179,10 @@ impl QrLoginClient {
         user_id: Option<String>,
         nonce: Option<String>,
     ) -> Result<CloudLoginOutcome, MiotError> {
-        trace_entry("QrLoginClient::finish_qr_location");
+        tracing::trace!(
+            function = "QrLoginClient::finish_qr_location",
+            "entered cloud login helper"
+        );
         let location = add_client_sign(sid, location, ssecurity.as_deref(), nonce.as_deref())?;
         let final_response = self
             .client
