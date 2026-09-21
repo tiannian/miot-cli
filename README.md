@@ -28,7 +28,8 @@ miot auth login --region cn --userpass 'USERNAME:PASSWORD'
 printf '%s\n%s\n' 'USERNAME' 'PASSWORD' | miot auth login --region cn --userpass-stdin
 
 # 更新家庭状态及每个家庭下的设备列表
-miot update --account <ACCOUNT_ID> --region cn
+miot update --miio --account <ACCOUNT_ID> --region cn
+miot update --mihome --account <ACCOUNT_ID> --region cn
 
 # List devices
 miot devices list
@@ -54,7 +55,7 @@ miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 
 不要将含密码的命令写入 shell 历史记录或共享的脚本。建议使用 `--userpass-stdin`，从标准输入依次读取账号和密码两行。登录成功后，凭据保存在 `~/.local/miot.rs/accounts/`。
 
-执行 `miot update` 会使用已保存的云端登录凭据更新家庭数据，并将家庭聚合状态写入 `~/.local/miio/<account>/homes.json`，将每个家庭的完整设备列表写入 `~/.local/miio/<account>/devices/<home-id>.json`。`<account>` 使用已保存账号的文件名形式，且会将不适合作为路径的字符替换为下划线。有多个已保存账号时必须使用 `--account` 指定账号；只有一个账号时可省略该参数。
+执行 `miot update` 时必须选择一种 API。`--miio` 使用原有 MiIO 接口，并将家庭聚合状态写入 `~/.local/miio/<account>/homes.json`，将每个家庭的完整设备列表写入 `~/.local/miio/<account>/devices/<home-id>.json`。`--mihome` 使用 Xiaomi Home 接口，枚举自有家庭、共享家庭和独立分享设备；原始家庭及房间分页信息写入 `~/.local/mihome/<account>/homes.json`，全部设备详情写入 `devices.json`，每个家庭或独立分享者的设备详情写入 `devices/` 目录。`<account>` 使用已保存账号的文件名形式，且会将不适合作为路径的字符替换为下划线。有多个已保存账号时必须使用 `--account` 指定账号；只有一个账号时可省略该参数。
 
 Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 
