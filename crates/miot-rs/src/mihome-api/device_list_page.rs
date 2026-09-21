@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::{ApiClient, MiotError};
+use crate::{MiHomeApiClient, MiotError};
 
 /// Parameters for one paginated Xiaomi Home device-details request.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,7 +31,7 @@ impl DeviceListPageQuery {
     }
 }
 
-impl ApiClient {
+impl MiHomeApiClient {
     /// Returns one page of complete device metadata.
     ///
     /// The response can include `has_more` and `next_start_did`; callers must

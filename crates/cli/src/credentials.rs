@@ -1,6 +1,11 @@
-use std::{error::Error, fs, path::PathBuf};
+use std::{
+    error::Error,
+    fs,
+    path::PathBuf,
+    time::{Duration, UNIX_EPOCH},
+};
 
-use miot_rs::CloudCredential;
+use miot_rs::{CloudCredential, OAuthCredential};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
@@ -22,6 +27,47 @@ pub enum StoredCredential {
 pub fn load_cloud_credential(
     account: Option<&str>,
 ) -> Result<(String, CloudCredential), Box<dyn Error>> {
+    let (account_id, stored) = load_stored_credential(account)?;
+    let StoredCredential::Cloud {
+        user_id,
+        service_token,
+        ssecurity,
+        device_id: _,
+    } = stored
+    else {
+        return Err("the selected account does not have a Xiaomi cloud credential".into());
+    };
+    Ok((
+        account_id,
+        CloudCredential::new(user_id, service_token, ssecurity),
+    ))
+}
+
+pub fn load_oauth_credential(
+    account: Option<&str>,
+) -> Result<(String, OAuthCredential), Box<dyn Error>> {
+    let (account_id, stored) = load_stored_credential(account)?;
+    let StoredCredential::OAuth {
+        access_token,
+        refresh_token,
+        expires_at_unix_seconds,
+    } = stored
+    else {
+        return Err("the selected account does not have a Xiaomi Home OAuth credential".into());
+    };
+    Ok((
+        account_id,
+        OAuthCredential::from_parts(
+            access_token,
+            refresh_token,
+            UNIX_EPOCH + Duration::from_secs(expires_at_unix_seconds),
+        )?,
+    ))
+}
+
+fn load_stored_credential(
+    account: Option<&str>,
+) -> Result<(String, StoredCredential), Box<dyn Error>> {
     let accounts_directory = state_directory()?.join("accounts");
     let path = if let Some(account) = account {
         accounts_directory.join(format!("{}.toml", filename_component(account)))
@@ -41,25 +87,12 @@ pub fn load_cloud_credential(
             _ => return Err("multiple saved accounts found; specify one with --account".into()),
         }
     };
-    let stored: StoredCredential = toml::from_str(&fs::read_to_string(&path)?)?;
-    let StoredCredential::Cloud {
-        user_id,
-        service_token,
-        ssecurity,
-        device_id: _,
-    } = stored
-    else {
-        return Err("the selected account does not have a Xiaomi cloud credential".into());
-    };
     let account_id = path
         .file_stem()
         .and_then(|name| name.to_str())
         .ok_or("saved account path has no valid file name")?
         .to_owned();
-    Ok((
-        account_id,
-        CloudCredential::new(user_id, service_token, ssecurity),
-    ))
+    Ok((account_id, toml::from_str(&fs::read_to_string(path)?)?))
 }
 
 pub fn write_toml(path: &std::path::Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {

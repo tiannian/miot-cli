@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::{ApiClient, MiotError};
+use crate::{MiHomeApiClient, MiotError};
 
 /// Parameters for one page of home and room device relationships.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,7 +18,7 @@ impl Default for DevRoomPageQuery {
     }
 }
 
-impl ApiClient {
+impl MiHomeApiClient {
     /// Returns owned and shared homes, rooms, and their device identifiers.
     ///
     /// The response's `homelist` and `share_home_list` together identify the

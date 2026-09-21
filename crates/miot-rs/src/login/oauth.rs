@@ -30,6 +30,28 @@ pub struct OAuthCredential {
 }
 
 impl OAuthCredential {
+    /// Reconstructs an OAuth credential loaded from persistent storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either token is empty.
+    pub fn from_parts(
+        access_token: impl Into<String>,
+        refresh_token: impl Into<String>,
+        expires_at: SystemTime,
+    ) -> Result<Self, MiotError> {
+        let access_token = access_token.into();
+        let refresh_token = refresh_token.into();
+        if access_token.is_empty() || refresh_token.is_empty() {
+            return Err(MiotError::InvalidInput("OAuth tokens must not be empty"));
+        }
+        Ok(Self {
+            access_token,
+            refresh_token,
+            expires_at,
+        })
+    }
+
     #[must_use]
     pub fn access_token(&self) -> &str {
         &self.access_token

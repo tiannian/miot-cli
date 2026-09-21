@@ -5,11 +5,15 @@ use std::{
 };
 
 use clap::{ArgGroup, Args};
-use miot_rs::{ApiClient, DevRoomPageQuery, DeviceListPageQuery, HomeDeviceListQuery};
+use miot_rs::{
+    ApiClient, DevRoomPageQuery, DeviceListPageQuery, HomeDeviceListQuery, MiHomeApiClient,
+};
 use serde_json::{Value, json};
 use tracing::{debug, info};
 
-use crate::credentials::{load_cloud_credential, update_state_directory, write_json};
+use crate::credentials::{
+    load_cloud_credential, load_oauth_credential, update_state_directory, write_json,
+};
 
 #[derive(Args)]
 #[command(group(
@@ -34,14 +38,18 @@ pub struct UpdateArguments {
 
 impl UpdateArguments {
     pub async fn run(self) -> Result<(), Box<dyn Error>> {
-        let (account_id, credential) = load_cloud_credential(self.account.as_deref())?;
         let api = if self.miio { "miio" } else { "mihome" };
-        let update_directory = update_state_directory(&account_id, api)?;
-        info!(account = %account_id, region = %self.region, api, "updating cloud state");
-        let client = ApiClient::new(&self.region, credential)?;
         if self.miio {
+            let (account_id, credential) = load_cloud_credential(self.account.as_deref())?;
+            let update_directory = update_state_directory(&account_id, api)?;
+            info!(account = %account_id, region = %self.region, api, "updating cloud state");
+            let client = ApiClient::new(&self.region, credential)?;
             update_miio(&client, &update_directory, &account_id).await
         } else {
+            let (account_id, credential) = load_oauth_credential(self.account.as_deref())?;
+            let update_directory = update_state_directory(&account_id, api)?;
+            info!(account = %account_id, region = %self.region, api, "updating cloud state");
+            let client = MiHomeApiClient::new(&self.region, credential)?;
             update_mihome(&client, &update_directory, &account_id).await
         }
     }
@@ -114,7 +122,7 @@ async fn update_miio_home_devices(
 }
 
 async fn update_mihome(
-    client: &ApiClient,
+    client: &MiHomeApiClient,
     update_directory: &Path,
     account_id: &str,
 ) -> Result<(), Box<dyn Error>> {
@@ -173,7 +181,7 @@ async fn update_mihome(
 }
 
 async fn get_dev_room_pages(
-    client: &ApiClient,
+    client: &MiHomeApiClient,
     home_info: &Value,
 ) -> Result<Vec<Value>, Box<dyn Error>> {
     if !has_more(home_info) {
@@ -201,7 +209,7 @@ async fn get_dev_room_pages(
 }
 
 async fn get_all_device_pages(
-    client: &ApiClient,
+    client: &MiHomeApiClient,
     mut query: DeviceListPageQuery,
 ) -> Result<Vec<Value>, Box<dyn Error>> {
     let mut devices = Vec::new();

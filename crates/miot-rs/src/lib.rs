@@ -16,7 +16,7 @@ pub use login::{
     OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge, QrLoginClient,
     VerificationProof,
 };
-pub use mihome_api::{DevRoomPageQuery, DeviceListPageQuery};
+pub use mihome_api::{DevRoomPageQuery, DeviceListPageQuery, MiHomeApiClient};
 pub use miio_api::{ApiClient, HomeDeviceListQuery};
 
 /// Returns the SDK version compiled into the current binary.
