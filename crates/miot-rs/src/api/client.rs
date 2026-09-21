@@ -5,6 +5,7 @@ use reqwest::{Client, Url};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
+use tracing::{debug, trace};
 
 use crate::{CloudCredential, MiotError};
 
@@ -30,6 +31,7 @@ impl ApiClient {
         if region.is_empty() {
             return Err(MiotError::InvalidInput("cloud region must not be empty"));
         }
+        debug!(region, "creating Xiaomi cloud API client");
         let client = Client::builder().user_agent(USER_AGENT).build()?;
         Ok(Self {
             client,
@@ -45,6 +47,7 @@ impl ApiClient {
 
     pub(super) async fn post(&self, path: &str, data: Value) -> Result<Value, MiotError> {
         let url = self.api_url(path)?;
+        debug!(region = %self.region, path, "sending Xiaomi cloud API request");
         let nonce = nonce()?;
         let signed_nonce = signed_nonce(self.credential.ssecurity(), &nonce)?;
         let mut params = vec![(
@@ -78,6 +81,7 @@ impl ApiClient {
             .await?;
         let status = response.status();
         let body = response.text().await?;
+        trace!(path, status = %status, response_bytes = body.len(), "received Xiaomi cloud API response");
         let value = decode_response(&body, &signed_nonce)?;
         if !status.is_success()
             || value
@@ -85,6 +89,8 @@ impl ApiClient {
                 .and_then(Value::as_i64)
                 .is_some_and(|code| code != 0)
         {
+            let cloud_code = value.get("code").and_then(Value::as_i64);
+            debug!(path, status = %status, ?cloud_code, "Xiaomi cloud API request failed");
             return Err(MiotError::CloudApiResponse {
                 status: status.as_u16(),
                 code: value.get("code").and_then(Value::as_i64),

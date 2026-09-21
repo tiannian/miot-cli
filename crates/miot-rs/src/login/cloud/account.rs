@@ -719,7 +719,7 @@ fn confirm_phone_skip_url(url: &Url) -> Result<Option<Url>, MiotError> {
 }
 
 pub(super) fn trace_entry(function: &str) {
-    let _ = function;
+    tracing::trace!(function, "entered cloud login helper");
 }
 
 #[cfg(test)]

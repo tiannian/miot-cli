@@ -10,6 +10,7 @@ use miot_rs::{
     CloudLoginClient, CloudLoginOutcome, CloudLoginRequest, OAuthAuthorizationRequest,
     OAuthCredential, OAuthLoginClient, QrLoginClient, VerificationProof,
 };
+use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::credentials::{StoredCredential, credential_path, write_toml};
@@ -80,6 +81,7 @@ struct LoginResult {
 }
 
 async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
+    debug!(region = %arguments.region, "starting login flow");
     let mut result = if let Some(userpass) = arguments.userpass.clone() {
         login_with_userpass(&arguments, &userpass).await?
     } else if arguments.userpass_stdin {
@@ -94,11 +96,13 @@ async fn login(arguments: LoginArguments) -> Result<(), Box<dyn Error>> {
     }
     let path = credential_path(&result.account_id)?;
     write_toml(&path, &result.credential)?;
+    info!(account = %result.account_id, path = %path.display(), "credential saved");
     println!("Login succeeded. Credential saved to {}.", path.display());
     Ok(())
 }
 
 async fn login_with_qr(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
+    info!(region = %arguments.region, "starting QR login");
     let device_id = arguments
         .device_id
         .clone()
@@ -114,7 +118,10 @@ async fn login_with_qr(arguments: &LoginArguments) -> Result<LoginResult, Box<dy
     }
     println!("Waiting for confirmation in Xiaomi Home...");
     let credential = match client.wait_for_qr_login().await? {
-        CloudLoginOutcome::Success(credential) => credential,
+        CloudLoginOutcome::Success(credential) => {
+            info!("QR login confirmed");
+            credential
+        }
         CloudLoginOutcome::VerificationRequired { .. } | CloudLoginOutcome::CaptchaRequired(_) => {
             return Err("QR login returned an unexpected verification challenge".into());
         }
@@ -165,6 +172,7 @@ async fn login_with_userpass(
         .clone()
         .unwrap_or_else(generate_xiaomi_client_id);
     let mut client = CloudLoginClient::new(&arguments.region, &arguments.sid, &device_id)?;
+    info!(region = %arguments.region, sid = %arguments.sid, "starting username-password login");
     let mut outcome = client
         .login(CloudLoginRequest {
             account: account.to_owned(),
@@ -174,6 +182,7 @@ async fn login_with_userpass(
     loop {
         match outcome {
             CloudLoginOutcome::Success(credential) => {
+                info!("username-password login succeeded");
                 return Ok(LoginResult {
                     account_id: credential.user_id().to_owned(),
                     credential: StoredCredential::Cloud {
@@ -185,12 +194,14 @@ async fn login_with_userpass(
                 });
             }
             CloudLoginOutcome::VerificationRequired { url } => {
+                warn!(verification_url = %url, "additional account verification required");
                 println!(
                     "Open this page and complete the required verification. Paste the SMS, email, or device-confirmation code below.\n{url}"
                 );
                 match read_optional_line("ticket (or press Enter to cancel)> ")? { Some(ticket) => outcome = client.continue_verification(VerificationProof::new(ticket)).await?, None => return Err("verification cancelled; retrying login would discard the active verification transaction".into()) }
             }
             CloudLoginOutcome::CaptchaRequired(challenge) => {
+                warn!("CAPTCHA challenge required");
                 let image_path =
                     std::env::temp_dir().join(format!("miot-captcha-{}.png", challenge.id));
                 fs::write(&image_path, &challenge.image)?;
@@ -224,6 +235,7 @@ fn read_optional_line(prompt: &str) -> Result<Option<String>, Box<dyn Error>> {
 }
 
 async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box<dyn Error>> {
+    info!(region = %arguments.region, "starting OAuth login");
     let redirect_url = oauth_redirect_url(&arguments.redirect_url)?;
     let mut client = OAuthLoginClient::new(
         &arguments.client_id,
@@ -245,6 +257,7 @@ async fn login_with_oauth(arguments: &LoginArguments) -> Result<LoginResult, Box
     let credential = client
         .complete_callback(Url::parse(callback.trim())?)
         .await?;
+    info!("OAuth login succeeded");
     Ok(LoginResult {
         account_id: arguments.client_id.clone(),
         credential: stored_oauth_credential(&credential)?,

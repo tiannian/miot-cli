@@ -3,6 +3,7 @@ use std::error::Error;
 use clap::Args;
 use miot_rs::{ApiClient, HomeDeviceListQuery};
 use serde_json::Value;
+use tracing::{debug, info};
 
 use crate::credentials::{load_cloud_credential, state_directory, write_toml};
 
@@ -24,6 +25,7 @@ impl UpdateArguments {
 
 async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
     let (account_id, credential) = load_cloud_credential(arguments.account.as_deref())?;
+    info!(account = %account_id, region = %arguments.region, "updating cloud state");
     let client = ApiClient::new(&arguments.region, credential)?;
     let homes = client.home_merged().await?;
     write_toml(&state_directory()?.join("homes.toml"), &homes)?;
@@ -37,6 +39,11 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
         let home_id = required_i64(home, &["id", "home_id"])?;
         let home_owner = required_i64(home, &["owner_id", "home_owner", "uid"])?;
         let devices = update_home_devices(&client, home_owner, home_id).await?;
+        debug!(
+            home_id,
+            device_count = devices["devices"].as_array().map_or(0, Vec::len),
+            "updated home devices"
+        );
         write_toml(
             &state_directory()?
                 .join("devices")
@@ -60,6 +67,7 @@ async fn update_home_devices(
     let mut query = HomeDeviceListQuery::new(home_owner, home_id);
     let mut devices = Vec::new();
     loop {
+        debug!(home_id, start_did = %query.start_did, "requesting home device page");
         let page = client.home_device_list(&query).await?;
         let list = page
             .get("list")
@@ -67,6 +75,12 @@ async fn update_home_devices(
             .and_then(Value::as_array)
             .ok_or("cloud home device response did not contain device list")?;
         devices.extend(list.iter().cloned());
+        debug!(
+            home_id,
+            page_device_count = list.len(),
+            total_device_count = devices.len(),
+            "received home device page"
+        );
         let next_start_did = page
             .get("next_start_did")
             .or_else(|| page.get("start_did"))
