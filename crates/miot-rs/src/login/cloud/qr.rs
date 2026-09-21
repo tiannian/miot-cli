@@ -29,6 +29,11 @@ pub struct QrLoginClient {
 
 impl QrLoginClient {
     /// 创建扫码登录客户端。
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the device ID is empty or the HTTP client cannot
+    /// be created.
     pub fn new(device_id: impl Into<String>) -> Result<Self, MiotError> {
         tracing::trace!(
             function = "QrLoginClient::new",
