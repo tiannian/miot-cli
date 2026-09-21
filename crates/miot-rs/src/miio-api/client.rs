@@ -45,7 +45,7 @@ impl ApiClient {
         &self.region
     }
 
-    pub(super) async fn post(&self, path: &str, data: Value) -> Result<Value, MiotError> {
+    pub(crate) async fn post(&self, path: &str, data: Value) -> Result<Value, MiotError> {
         let url = self.api_url(path)?;
         debug!(region = %self.region, path, "sending Xiaomi cloud API request");
         let nonce = nonce()?;

@@ -5,6 +5,8 @@
 
 pub mod error;
 pub mod login;
+#[path = "mihome-api/mod.rs"]
+pub mod mihome_api;
 #[path = "miio-api/mod.rs"]
 pub mod miio_api;
 
@@ -14,6 +16,7 @@ pub use login::{
     OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge, QrLoginClient,
     VerificationProof,
 };
+pub use mihome_api::{DevRoomPageQuery, DeviceListPageQuery};
 pub use miio_api::{ApiClient, HomeDeviceListQuery};
 
 /// Returns the SDK version compiled into the current binary.
