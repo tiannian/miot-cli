@@ -5,7 +5,7 @@ use miot_rs::{ApiClient, HomeDeviceListQuery};
 use serde_json::Value;
 use tracing::{debug, info};
 
-use crate::credentials::{load_cloud_credential, state_directory, write_toml};
+use crate::credentials::{load_cloud_credential, state_directory, write_json};
 
 #[derive(Args)]
 pub struct UpdateArguments {
@@ -28,7 +28,7 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
     info!(account = %account_id, region = %arguments.region, "updating cloud state");
     let client = ApiClient::new(&arguments.region, credential)?;
     let homes = client.home_merged().await?;
-    write_toml(&state_directory()?.join("homes.toml"), &homes)?;
+    write_json(&state_directory()?.join("homes.json"), &homes)?;
     let homes_to_update = homes
         .get("homelist")
         .or_else(|| homes.get("home_list"))
@@ -44,10 +44,10 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
             device_count = devices["devices"].as_array().map_or(0, Vec::len),
             "updated home devices"
         );
-        write_toml(
+        write_json(
             &state_directory()?
                 .join("devices")
-                .join(format!("{home_id}.toml")),
+                .join(format!("{home_id}.json")),
             &devices,
         )?;
         updated += 1;

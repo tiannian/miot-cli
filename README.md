@@ -54,7 +54,7 @@ miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 
 不要将含密码的命令写入 shell 历史记录或共享的脚本。建议使用 `--userpass-stdin`，从标准输入依次读取账号和密码两行。登录成功后，凭据保存在 `~/.local/miot.rs/accounts/`。
 
-执行 `miot update` 会使用已保存的云端登录凭据更新家庭数据，并将家庭聚合状态写入 `~/.local/miot.rs/homes.toml`，将每个家庭的完整设备列表写入 `~/.local/miot.rs/devices/<home-id>.toml`。有多个已保存账号时必须使用 `--account` 指定账号；只有一个账号时可省略该参数。
+执行 `miot update` 会使用已保存的云端登录凭据更新家庭数据，并将家庭聚合状态写入 `~/.local/miot.rs/homes.json`，将每个家庭的完整设备列表写入 `~/.local/miot.rs/devices/<home-id>.json`。有多个已保存账号时必须使用 `--account` 指定账号；只有一个账号时可省略该参数。
 
 Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 

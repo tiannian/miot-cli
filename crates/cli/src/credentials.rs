@@ -69,6 +69,13 @@ pub fn write_toml(path: &std::path::Path, value: &impl Serialize) -> Result<(), 
     Ok(())
 }
 
+pub fn write_json(path: &std::path::Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
+    let parent = path.parent().ok_or("state path has no parent directory")?;
+    fs::create_dir_all(parent)?;
+    fs::write(path, serde_json::to_string_pretty(value)?)?;
+    Ok(())
+}
+
 pub fn state_directory() -> Result<PathBuf, Box<dyn Error>> {
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
     Ok(PathBuf::from(home).join(".local/miot.rs"))
@@ -100,7 +107,8 @@ pub fn filename_component(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{StoredCredential, write_toml};
+    use super::{StoredCredential, write_json, write_toml};
+    use serde_json::json;
 
     #[test]
     fn writes_credentials_as_toml() {
@@ -120,5 +128,20 @@ mod tests {
         assert!(!contents.trim_start().starts_with('{'));
         let restored: StoredCredential = toml::from_str(&contents).unwrap();
         assert!(matches!(restored, StoredCredential::Cloud { .. }));
+    }
+
+    #[test]
+    fn writes_cloud_state_as_json() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("homes.json");
+        let state = json!({ "home": null, "devices": [] });
+
+        write_json(&path, &state).unwrap();
+
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&contents).unwrap(),
+            state
+        );
     }
 }
