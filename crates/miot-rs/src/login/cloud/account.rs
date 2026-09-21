@@ -9,7 +9,7 @@ use serde::Deserialize;
 use sha1::Sha1;
 use url::Url;
 
-use super::super::MiotError;
+use crate::MiotError;
 const ACCOUNT_BASE: &str = "https://account.xiaomi.com";
 
 /// Input for a Xiaomi account-password login. It is intentionally consumed per attempt.

@@ -4,13 +4,15 @@
 //! depends on this crate instead of accessing protocol implementations directly.
 
 pub mod api;
+pub mod error;
 pub mod login;
 
 pub use api::{ApiClient, HomeDeviceListQuery};
+pub use error::MiotError;
 pub use login::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
-    MiotError, OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge,
-    QrLoginClient, VerificationProof,
+    OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge, QrLoginClient,
+    VerificationProof,
 };
 
 /// Returns the SDK version compiled into the current binary.

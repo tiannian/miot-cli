@@ -1,12 +1,12 @@
 use serde::Deserialize;
 use url::Url;
 
-use super::super::MiotError;
 use super::account::{
     AuthResponse, CloudCredential, CloudLoginOutcome, absolute_url, account_url, add_client_sign,
     authentication_response, cookie_value, decode_json, fetch_service_login_context,
     json_string_or_number, now_millis, trace_entry,
 };
+use crate::MiotError;
 
 /// 小米扫码登录挑战。请用米家 App 扫描二维码，并在同一客户端实例上等待结果。
 #[derive(Clone, Debug)]

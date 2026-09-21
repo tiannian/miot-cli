@@ -7,7 +7,7 @@ use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use super::MiotError;
+use crate::MiotError;
 
 const OAUTH_API_DOMAIN: &str = "ha.api.io.mi.com";
 const AUTHORIZATION_URL: &str = "https://account.xiaomi.com/oauth2/authorize";
