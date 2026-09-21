@@ -161,29 +161,15 @@ impl QrLoginClient {
         let location = auth.location.ok_or(MiotError::Protocol(
             "QR login response did not contain location",
         ))?;
-        self.finish_qr_location(
+        let ssecurity = auth.ssecurity;
+        let user_id = json_string_or_number(auth.user_id);
+        let nonce = json_string_or_number(auth.nonce);
+        let location = add_client_sign(
             &pending.sid,
             location,
-            auth.ssecurity,
-            json_string_or_number(auth.user_id),
-            json_string_or_number(auth.nonce),
-        )
-        .await
-    }
-
-    async fn finish_qr_location(
-        &self,
-        sid: &str,
-        location: String,
-        ssecurity: Option<String>,
-        user_id: Option<String>,
-        nonce: Option<String>,
-    ) -> Result<CloudLoginOutcome, MiotError> {
-        tracing::trace!(
-            function = "QrLoginClient::finish_qr_location",
-            "entered cloud login helper"
-        );
-        let location = add_client_sign(sid, location, ssecurity.as_deref(), nonce.as_deref())?;
+            ssecurity.as_deref(),
+            nonce.as_deref(),
+        )?;
         let final_response = self
             .client
             .get(location)
