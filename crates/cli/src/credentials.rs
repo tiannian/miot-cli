@@ -85,7 +85,7 @@ pub fn update_state_directory(account_id: &str, api: &str) -> Result<PathBuf, Bo
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
     Ok(PathBuf::from(home)
         .join(".local")
-        .join("miot-rs")
+        .join("miot.rs")
         .join(filename_component(api))
         .join(filename_component(account_id)))
 }
