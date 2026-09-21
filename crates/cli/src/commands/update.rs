@@ -5,7 +5,7 @@ use miot_rs::{ApiClient, HomeDeviceListQuery};
 use serde_json::Value;
 use tracing::{debug, info};
 
-use crate::credentials::{load_cloud_credential, state_directory, write_json};
+use crate::credentials::{load_cloud_credential, update_state_directory, write_json};
 
 #[derive(Args)]
 pub struct UpdateArguments {
@@ -25,10 +25,11 @@ impl UpdateArguments {
 
 async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
     let (account_id, credential) = load_cloud_credential(arguments.account.as_deref())?;
+    let update_directory = update_state_directory(&account_id)?;
     info!(account = %account_id, region = %arguments.region, "updating cloud state");
     let client = ApiClient::new(&arguments.region, credential)?;
     let homes = client.home_merged().await?;
-    write_json(&state_directory()?.join("homes.json"), &homes)?;
+    write_json(&update_directory.join("homes.json"), &homes)?;
     let homes_to_update = homes
         .get("homelist")
         .or_else(|| homes.get("home_list"))
@@ -45,7 +46,7 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
             "updated home devices"
         );
         write_json(
-            &state_directory()?
+            &update_directory
                 .join("devices")
                 .join(format!("{home_id}.json")),
             &devices,
@@ -54,7 +55,7 @@ async fn update(arguments: UpdateArguments) -> Result<(), Box<dyn Error>> {
     }
     println!(
         "Updated {updated} home(s) for account {account_id}. State saved to {}.",
-        state_directory()?.display()
+        update_directory.display()
     );
     Ok(())
 }

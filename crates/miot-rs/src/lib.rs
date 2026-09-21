@@ -3,17 +3,18 @@
 //! Protocol clients and services will be added incrementally. The CLI crate
 //! depends on this crate instead of accessing protocol implementations directly.
 
-pub mod api;
 pub mod error;
 pub mod login;
+#[path = "miio-api/mod.rs"]
+pub mod miio_api;
 
-pub use api::{ApiClient, HomeDeviceListQuery};
 pub use error::MiotError;
 pub use login::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
     OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge, QrLoginClient,
     VerificationProof,
 };
+pub use miio_api::{ApiClient, HomeDeviceListQuery};
 
 /// Returns the SDK version compiled into the current binary.
 #[must_use]

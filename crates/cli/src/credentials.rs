@@ -81,6 +81,13 @@ pub fn state_directory() -> Result<PathBuf, Box<dyn Error>> {
     Ok(PathBuf::from(home).join(".local/miot.rs"))
 }
 
+pub fn update_state_directory(account_id: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    Ok(PathBuf::from(home)
+        .join(".local/miio")
+        .join(filename_component(account_id)))
+}
+
 pub fn credential_path(account_id: &str) -> Result<PathBuf, Box<dyn Error>> {
     Ok(state_directory()?
         .join("accounts")
@@ -107,7 +114,7 @@ pub fn filename_component(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{StoredCredential, write_json, write_toml};
+    use super::{StoredCredential, filename_component, write_json, write_toml};
     use serde_json::json;
 
     #[test]
@@ -143,5 +150,10 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&contents).unwrap(),
             state
         );
+    }
+
+    #[test]
+    fn normalizes_update_directory_account_component() {
+        assert_eq!(filename_component("a/b@example.com"), "a_b_example_com");
     }
 }
