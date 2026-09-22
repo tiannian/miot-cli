@@ -6,7 +6,7 @@ use std::error::Error;
 use clap::{Parser, Subcommand};
 use commands::{
     account::AccountCommand, auth::AuthCommand, device::DeviceCommand, home::HomeCommand,
-    lan::LanCommand, update::UpdateArguments,
+    lan::LanCommand, update::UpdateArguments, update_cert::UpdateCertArguments,
 };
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
@@ -29,6 +29,8 @@ enum Command {
     Home(HomeCommand),
     Lan(Box<LanCommand>),
     Update(UpdateArguments),
+    /// Request a central-gateway MQTT client certificate.
+    UpdateCert(UpdateCertArguments),
 }
 
 #[tokio::main]
@@ -70,6 +72,10 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Some(Command::Update(arguments)) => {
             info!(command = "update", "running command");
+            arguments.run().await
+        }
+        Some(Command::UpdateCert(arguments)) => {
+            info!(command = "update-cert", "running command");
             arguments.run().await
         }
         None => {
