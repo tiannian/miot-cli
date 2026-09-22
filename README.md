@@ -31,12 +31,14 @@ printf '%s\n%s\n' 'USERNAME' 'PASSWORD' | miot auth login --region cn --userpass
 miot update --miio --account <ACCOUNT_ID> --region cn
 miot update --mihome --account <ACCOUNT_ID> --region cn
 
-# List devices
-miot devices list
+# 列出已登录账号
+miot account
 
-# Inspect a device and its capabilities
-miot devices get <did>
-miot spec get <did>
+# 从最近一次更新的本地状态中列出设备（仅名称、DID、型号）
+miot device list --account <ACCOUNT_ID>
+
+# 查看设备的完整缓存信息
+miot device get <did> --account <ACCOUNT_ID>
 
 # Read or write a property
 miot props get <did> <siid> <piid>

@@ -24,6 +24,51 @@ pub enum StoredCredential {
     },
 }
 
+impl StoredCredential {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::OAuth { .. } => "oauth",
+            Self::Cloud { .. } => "cloud",
+        }
+    }
+}
+
+pub struct SavedAccount {
+    pub id: String,
+    pub credential_kind: &'static str,
+}
+
+pub fn saved_accounts() -> Result<Vec<SavedAccount>, Box<dyn Error>> {
+    let accounts_directory = state_directory()?.join("accounts");
+    if !accounts_directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut paths = fs::read_dir(accounts_directory)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "toml")
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let id = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or("saved account path has no valid file name")?
+                .to_owned();
+            let credential: StoredCredential = toml::from_str(&fs::read_to_string(path)?)?;
+            Ok(SavedAccount {
+                id,
+                credential_kind: credential.kind(),
+            })
+        })
+        .collect()
+}
+
 pub fn load_cloud_credential(
     account: Option<&str>,
 ) -> Result<(String, CloudCredential), Box<dyn Error>> {

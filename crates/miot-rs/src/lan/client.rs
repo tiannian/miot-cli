@@ -350,7 +350,10 @@ mod tests {
     fn encrypts_and_decrypts_a_miio_packet() {
         let payload = json!({"id": 1, "method": "get_properties", "params": []});
         let packet = encode_packet(0x1234_5678, 42, &TOKEN, &payload).unwrap();
-        assert_eq!(&packet[0..4], &[0x21, 0x31, 0, packet.len() as u8]);
+        assert_eq!(
+            &packet[0..4],
+            &[0x21, 0x31, 0, u8::try_from(packet.len()).unwrap()]
+        );
         assert_eq!(decode_packet(&packet, &TOKEN).unwrap(), payload);
     }
 
