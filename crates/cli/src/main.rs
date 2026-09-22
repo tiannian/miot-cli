@@ -5,8 +5,8 @@ use std::error::Error;
 
 use clap::{Parser, Subcommand};
 use commands::{
-    account::AccountCommand, auth::AuthCommand, device::DeviceCommand, lan::LanCommand,
-    update::UpdateArguments,
+    account::AccountCommand, auth::AuthCommand, device::DeviceCommand, home::HomeCommand,
+    lan::LanCommand, update::UpdateArguments,
 };
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
@@ -25,6 +25,8 @@ enum Command {
     Auth(Box<AuthCommand>),
     /// Read devices from locally updated cloud state.
     Device(Box<DeviceCommand>),
+    /// List cached homes and their rooms.
+    Home(HomeCommand),
     Lan(Box<LanCommand>),
     Update(UpdateArguments),
 }
@@ -56,6 +58,10 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Some(Command::Device(command)) => {
             info!(command = "device", "running command");
+            command.run()
+        }
+        Some(Command::Home(command)) => {
+            info!(command = "home", "running command");
             command.run()
         }
         Some(Command::Lan(command)) => {

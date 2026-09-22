@@ -3,7 +3,10 @@ use std::{collections::BTreeMap, error::Error, fs, path::Path};
 use clap::{Args, Subcommand, ValueEnum};
 use serde_json::Value;
 
-use crate::credentials::{filename_component, saved_accounts, state_directory};
+use crate::{
+    commands::home,
+    credentials::{filename_component, saved_accounts, state_directory},
+};
 
 /// Read devices from cloud state written by `miot update`.
 #[derive(Args)]
@@ -21,9 +24,15 @@ enum DeviceSubcommand {
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum Api {
+pub(crate) enum Api {
     Miio,
     Mihome,
+}
+
+struct DeviceState {
+    account: String,
+    api: Api,
+    devices: BTreeMap<String, Value>,
 }
 
 #[derive(Args)]
@@ -34,6 +43,9 @@ struct DeviceListArguments {
     /// State API to read. Defaults to Xiaomi Home when available.
     #[arg(long, value_enum)]
     api: Option<Api>,
+    /// Room ID or unique room name to filter by.
+    #[arg(long)]
+    room: Option<String>,
 }
 
 #[derive(Args)]
@@ -58,9 +70,13 @@ impl DeviceCommand {
 }
 
 fn list(arguments: &DeviceListArguments) -> Result<(), Box<dyn Error>> {
-    let devices = devices(arguments.account.as_deref(), arguments.api)?;
+    let mut state = devices(arguments.account.as_deref(), arguments.api)?;
+    if let Some(room) = &arguments.room {
+        let dids = home::room_dids(&state.account, state.api, room)?;
+        state.devices.retain(|did, _| dids.contains(did));
+    }
     println!("NAME\tDID\tMODEL");
-    for device in devices.values() {
+    for device in state.devices.values() {
         println!(
             "{}\t{}\t{}",
             field(device, "name"),
@@ -72,8 +88,8 @@ fn list(arguments: &DeviceListArguments) -> Result<(), Box<dyn Error>> {
 }
 
 fn get(arguments: &DeviceGetArguments) -> Result<(), Box<dyn Error>> {
-    let devices = devices(arguments.account.as_deref(), arguments.api)?;
-    let device = devices.get(&arguments.did).ok_or_else(|| {
+    let state = devices(arguments.account.as_deref(), arguments.api)?;
+    let device = state.devices.get(&arguments.did).ok_or_else(|| {
         format!(
             "device `{}` was not found in the cached state",
             arguments.did
@@ -83,10 +99,7 @@ fn get(arguments: &DeviceGetArguments) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn devices(
-    account: Option<&str>,
-    api: Option<Api>,
-) -> Result<BTreeMap<String, Value>, Box<dyn Error>> {
+fn devices(account: Option<&str>, api: Option<Api>) -> Result<DeviceState, Box<dyn Error>> {
     let account = resolve_account(account)?;
     let root = state_directory()?;
     let preferred = match api {
@@ -99,13 +112,17 @@ fn devices(
             Api::Miio => load_miio_devices(&root, &account)?,
         };
         if !devices.is_empty() {
-            return Ok(devices);
+            return Ok(DeviceState {
+                account,
+                api,
+                devices,
+            });
         }
     }
     Err(format!("no cached devices found for account `{account}`; run `miot update` first").into())
 }
 
-fn resolve_account(account: Option<&str>) -> Result<String, Box<dyn Error>> {
+pub(crate) fn resolve_account(account: Option<&str>) -> Result<String, Box<dyn Error>> {
     if let Some(account) = account {
         return Ok(filename_component(account));
     }

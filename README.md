@@ -34,8 +34,14 @@ miot update --mihome --account <ACCOUNT_ID> --region cn
 # 列出已登录账号
 miot account
 
+# 列出家庭及下属房间
+miot home --account <ACCOUNT_ID>
+
 # 从最近一次更新的本地状态中列出设备（仅名称、DID、型号）
 miot device list --account <ACCOUNT_ID>
+
+# 按房间 ID 或唯一房间名称筛选设备
+miot device list --account <ACCOUNT_ID> --room <ROOM_ID_OR_NAME>
 
 # 查看设备的完整缓存信息
 miot device get <did> --account <ACCOUNT_ID>
