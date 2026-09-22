@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::{
     commands::device::{Api, resolve_account},
+    commands::table::print_table,
     credentials::state_directory,
 };
 
@@ -35,15 +36,21 @@ impl HomeCommand {
     pub fn run(self) -> Result<(), Box<dyn Error>> {
         let account = resolve_account(self.account.as_deref())?;
         let (_, homes) = homes(&account, self.api)?;
-        println!("HOME_ID\tHOME_NAME\tROOM_ID\tROOM_NAME");
+        let mut rows = Vec::new();
         for home in homes {
             if home.rooms.is_empty() {
-                println!("{}\t{}\t\t", home.id, home.name);
+                rows.push(vec![
+                    home.id.clone(),
+                    home.name.clone(),
+                    String::new(),
+                    String::new(),
+                ]);
             }
             for room in home.rooms {
-                println!("{}\t{}\t{}\t{}", home.id, home.name, room.id, room.name);
+                rows.push(vec![home.id.clone(), home.name.clone(), room.id, room.name]);
             }
         }
+        print_table(&["HOME_ID", "HOME_NAME", "ROOM_ID", "ROOM_NAME"], &rows);
         Ok(())
     }
 }

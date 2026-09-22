@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::{
     commands::home,
+    commands::table::print_table,
     credentials::{filename_component, saved_accounts, state_directory},
 };
 
@@ -75,15 +76,18 @@ fn list(arguments: &DeviceListArguments) -> Result<(), Box<dyn Error>> {
         let dids = home::room_dids(&state.account, state.api, room)?;
         state.devices.retain(|did, _| dids.contains(did));
     }
-    println!("NAME\tDID\tMODEL");
-    for device in state.devices.values() {
-        println!(
-            "{}\t{}\t{}",
-            field(device, "name"),
-            field(device, "did"),
-            field(device, "model")
-        );
-    }
+    let rows = state
+        .devices
+        .values()
+        .map(|device| {
+            vec![
+                field(device, "name").to_owned(),
+                field(device, "did").to_owned(),
+                field(device, "model").to_owned(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(&["NAME", "DID", "MODEL"], &rows);
     Ok(())
 }
 
