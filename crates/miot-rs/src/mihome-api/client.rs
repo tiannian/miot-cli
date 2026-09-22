@@ -71,6 +71,42 @@ impl MiHomeApiClient {
         Ok(value)
     }
 
+    /// Requests a client certificate for a Xiaomi Home central gateway.
+    ///
+    /// `csr_pem` must be a PEM-encoded PKCS#10 certificate signing request.
+    /// The returned value is a PEM-encoded client certificate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the CSR is empty, the API request fails, or the
+    /// response does not contain a certificate.
+    pub async fn get_central_certificate(&self, csr_pem: &str) -> Result<String, MiotError> {
+        if csr_pem.trim().is_empty() {
+            return Err(MiotError::InvalidInput(
+                "certificate signing request must not be empty",
+            ));
+        }
+        let response = self
+            .post(
+                "/v2/ha/oauth/get_central_crt",
+                serde_json::json!({
+                    "csr": base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        csr_pem.as_bytes(),
+                    ),
+                }),
+            )
+            .await?;
+        response
+            .pointer("/result/cert")
+            .and_then(Value::as_str)
+            .filter(|certificate| !certificate.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or(MiotError::Protocol(
+                "central certificate response did not contain a certificate",
+            ))
+    }
+
     fn api_url(&self, path: &str) -> Result<Url, MiotError> {
         let host = if self.region.eq_ignore_ascii_case("cn") {
             "ha.api.io.mi.com".to_owned()

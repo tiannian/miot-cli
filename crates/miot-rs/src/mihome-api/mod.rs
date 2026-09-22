@@ -1,4 +1,4 @@
-//! Xiaomi Home APIs used to enumerate every device visible to an account.
+//! Xiaomi Home APIs for device discovery and central-gateway certificates.
 //!
 //! The API first returns homes, rooms, and their device identifiers. Device
 //! details are then requested in batches through the paginated device-list API.

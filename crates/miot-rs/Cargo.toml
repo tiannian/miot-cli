@@ -18,6 +18,7 @@ getrandom = "0.3"
 hex = "0.4"
 md-5 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "native-tls"] }
+rcgen = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"

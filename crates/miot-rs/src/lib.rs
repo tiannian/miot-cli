@@ -10,6 +10,7 @@ pub mod login;
 pub mod mihome_api;
 #[path = "miio-api/mod.rs"]
 pub mod miio_api;
+pub mod mqtt;
 pub mod spec;
 
 pub use error::MiotError;
@@ -21,6 +22,7 @@ pub use login::{
 };
 pub use mihome_api::{DevRoomPageQuery, DeviceListPageQuery, MiHomeApiClient};
 pub use miio_api::{ApiClient, HomeDeviceListQuery};
+pub use mqtt::{MqttCertificateClient, MqttClientCertificate};
 pub use spec::MiotSpecClient;
 
 /// Returns the SDK version compiled into the current binary.

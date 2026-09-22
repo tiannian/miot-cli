@@ -40,6 +40,8 @@ pub enum MiotError {
     LocalNetwork(String),
     #[error("local device returned an error: {0}")]
     LocalDevice(String),
+    #[error("certificate operation failed: {0}")]
+    Certificate(String),
     #[error("{0}")]
     Protocol(&'static str),
     #[error("{0}")]
