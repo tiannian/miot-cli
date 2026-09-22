@@ -84,10 +84,11 @@ fn list(arguments: &DeviceListArguments) -> Result<(), Box<dyn Error>> {
                 field(device, "name").to_owned(),
                 field(device, "did").to_owned(),
                 field(device, "model").to_owned(),
+                online_status(device),
             ]
         })
         .collect::<Vec<_>>();
-    print_table(&["NAME", "DID", "MODEL"], &rows);
+    print_table(&["NAME", "DID", "MODEL", "ONLINE"], &rows);
     Ok(())
 }
 
@@ -203,9 +204,17 @@ fn field<'a>(device: &'a Value, name: &str) -> &'a str {
     device.get(name).and_then(Value::as_str).unwrap_or("")
 }
 
+fn online_status(device: &Value) -> String {
+    device
+        .get("isOnline")
+        .or_else(|| device.get("online"))
+        .and_then(Value::as_bool)
+        .map_or_else(|| "unknown".to_owned(), |online| online.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::collect_devices;
+    use super::{collect_devices, online_status};
     use serde_json::json;
 
     #[test]
@@ -213,5 +222,12 @@ mod tests {
         let devices = [json!({ "did": "2", "name": "Two" }), json!({ "did": "1" })];
         let result = collect_devices(devices.iter()).unwrap();
         assert_eq!(result.keys().collect::<Vec<_>>(), vec!["1", "2"]);
+    }
+
+    #[test]
+    fn reads_online_status_from_both_cloud_field_names() {
+        assert_eq!(online_status(&json!({ "isOnline": true })), "true");
+        assert_eq!(online_status(&json!({ "online": false })), "false");
+        assert_eq!(online_status(&json!({})), "unknown");
     }
 }

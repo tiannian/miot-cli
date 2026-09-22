@@ -37,7 +37,7 @@ miot account
 # 列出家庭及下属房间
 miot home --account <ACCOUNT_ID>
 
-# 从最近一次更新的本地状态中列出设备（仅名称、DID、型号）
+# 从最近一次更新的本地状态中列出设备（名称、DID、型号、在线状态）
 miot device list --account <ACCOUNT_ID>
 
 # 按房间 ID 或唯一房间名称筛选设备
