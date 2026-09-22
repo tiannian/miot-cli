@@ -58,7 +58,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Some(Command::Device(command)) => {
             info!(command = "device", "running command");
-            command.run()
+            command.run().await
         }
         Some(Command::Home(command)) => {
             info!(command = "home", "running command");
