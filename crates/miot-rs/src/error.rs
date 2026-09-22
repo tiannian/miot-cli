@@ -36,6 +36,10 @@ pub enum MiotError {
     CaptchaRequired,
     #[error("network request failed: {0}")]
     Network(#[from] reqwest::Error),
+    #[error("local network request failed: {0}")]
+    LocalNetwork(String),
+    #[error("local device returned an error: {0}")]
+    LocalDevice(String),
     #[error("{0}")]
     Protocol(&'static str),
     #[error("{0}")]

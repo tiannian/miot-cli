@@ -4,6 +4,7 @@
 //! depends on this crate instead of accessing protocol implementations directly.
 
 pub mod error;
+pub mod lan;
 pub mod login;
 #[path = "mihome-api/mod.rs"]
 pub mod mihome_api;
@@ -11,6 +12,7 @@ pub mod mihome_api;
 pub mod miio_api;
 
 pub use error::MiotError;
+pub use lan::{Action, Client as LanClient, Property};
 pub use login::{
     CaptchaChallenge, CloudCredential, CloudLoginClient, CloudLoginOutcome, CloudLoginRequest,
     OAuthAuthorizationRequest, OAuthCredential, OAuthLoginClient, QrLoginChallenge, QrLoginClient,
