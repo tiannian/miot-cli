@@ -43,7 +43,7 @@ miot device list --account <ACCOUNT_ID>
 # 按房间 ID 或唯一房间名称筛选设备
 miot device list --account <ACCOUNT_ID> --room <ROOM_ID_OR_NAME>
 
-# 查看设备支持的 MIoT 属性、事件和操作
+# 查看设备信息、局域网 IP（如缓存中存在）及 MIoT 能力
 miot device get <did> --account <ACCOUNT_ID>
 
 # Read or write a property
@@ -65,7 +65,7 @@ miot actions invoke <did> <siid> <aiid> --input '["hello", true]'
 
 执行 `miot update` 时必须选择一种 API。`--miio` 使用原有 MiIO 接口，需要账号密码或二维码登录保存的云端凭据，并将家庭聚合状态写入 `~/.local/miot.rs/miio/<account>/homes.json`，将每个家庭的完整设备列表写入 `~/.local/miot.rs/miio/<account>/devices/<home-id>.json`。`--mihome` 使用 Xiaomi Home 接口，需要 `miot auth login --oauth` 保存的 OAuth 凭据；它会枚举自有家庭、共享家庭和独立分享设备，原始家庭及房间分页信息写入 `~/.local/miot.rs/mihome/<account>/homes.json`，全部设备详情写入 `devices.json`，每个家庭或独立分享者的设备详情写入 `devices/` 目录。`<account>` 使用已保存账号的文件名形式，且会将不适合作为路径的字符替换为下划线。有多个已保存账号时必须使用 `--account` 指定账号；只有一个账号时可省略该参数。
 
-`miot device get <did>` 会依据本地缓存中的设备型号查询公开 MIoT Spec v2 服务，并依次以表格列出该设备支持的属性、事件和操作。命令需要联网，但不需要额外的小米账号权限。
+`miot device get <did>` 会显示设备基本信息；缓存中存在 `ip`、`localip`、`local_ip` 或 `lan_ip` 时，会额外显示 IP 列。随后它会依据设备型号查询公开 MIoT Spec v2 服务，并以表格列出该设备支持的属性、事件和操作。命令需要联网，但不需要额外的小米账号权限。
 
 Read-oriented commands will support `--format table|json|yaml`. Watch commands will emit NDJSON by default, making them easy to consume through `jq`, log collectors, and shell pipelines.
 

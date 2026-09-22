@@ -105,15 +105,18 @@ async fn get(arguments: &DeviceGetArguments) -> Result<(), Box<dyn Error>> {
     if model.is_empty() {
         return Err("cached device record did not contain model".into());
     }
-    print_table(
-        &["NAME", "DID", "MODEL", "ONLINE"],
-        &[vec![
-            field(device, "name").to_owned(),
-            field(device, "did").to_owned(),
-            model.to_owned(),
-            online_status(device),
-        ]],
-    );
+    let mut headers = vec!["NAME", "DID", "MODEL", "ONLINE"];
+    let mut row = vec![
+        field(device, "name").to_owned(),
+        field(device, "did").to_owned(),
+        model.to_owned(),
+        online_status(device),
+    ];
+    if let Some(ip) = ip_address(device) {
+        headers.push("IP");
+        row.push(ip.to_owned());
+    }
+    print_table(&headers, &[row]);
     let spec = MiotSpecClient::new()?.instance_for_model(model).await?;
     print_spec(&spec);
     Ok(())
@@ -371,9 +374,16 @@ fn online_status(device: &Value) -> String {
         .map_or_else(|| "unknown".to_owned(), |online| online.to_string())
 }
 
+fn ip_address(device: &Value) -> Option<&str> {
+    ["ip", "localip", "local_ip", "lan_ip"]
+        .iter()
+        .find_map(|key| device.get(key).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{collect_devices, iid_list, online_status, string_list};
+    use super::{collect_devices, iid_list, ip_address, online_status, string_list};
     use serde_json::json;
 
     #[test]
@@ -388,6 +398,15 @@ mod tests {
         assert_eq!(online_status(&json!({ "isOnline": true })), "true");
         assert_eq!(online_status(&json!({ "online": false })), "false");
         assert_eq!(online_status(&json!({})), "unknown");
+    }
+
+    #[test]
+    fn finds_an_available_device_ip_address() {
+        assert_eq!(
+            ip_address(&json!({ "localip": "192.168.1.2" })),
+            Some("192.168.1.2")
+        );
+        assert_eq!(ip_address(&json!({ "ip": "" })), None);
     }
 
     #[test]
