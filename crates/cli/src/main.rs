@@ -4,7 +4,7 @@ mod credentials;
 use std::error::Error;
 
 use clap::{Parser, Subcommand};
-use commands::{auth::AuthCommand, update::UpdateArguments};
+use commands::{auth::AuthCommand, lan::LanCommand, update::UpdateArguments};
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -18,6 +18,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Auth(Box<AuthCommand>),
+    Lan(Box<LanCommand>),
     Update(UpdateArguments),
 }
 
@@ -40,6 +41,10 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Some(Command::Auth(command)) => {
             info!(command = "auth", "running command");
+            command.run().await
+        }
+        Some(Command::Lan(command)) => {
+            info!(command = "lan", "running command");
             command.run().await
         }
         Some(Command::Update(arguments)) => {
