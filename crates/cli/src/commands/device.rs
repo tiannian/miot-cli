@@ -116,6 +116,10 @@ async fn get(arguments: &DeviceGetArguments) -> Result<(), Box<dyn Error>> {
         headers.push("IP");
         row.push(ip.to_owned());
     }
+    if let Some(token) = device_token(device) {
+        headers.push("TOKEN");
+        row.push(token.to_owned());
+    }
     print_table(&headers, &[row]);
     let spec = MiotSpecClient::new()?.instance_for_model(model).await?;
     print_spec(&spec);
@@ -381,9 +385,16 @@ fn ip_address(device: &Value) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+fn device_token(device: &Value) -> Option<&str> {
+    device
+        .get("token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{collect_devices, iid_list, ip_address, online_status, string_list};
+    use super::{collect_devices, device_token, iid_list, ip_address, online_status, string_list};
     use serde_json::json;
 
     #[test]
@@ -407,6 +418,12 @@ mod tests {
             Some("192.168.1.2")
         );
         assert_eq!(ip_address(&json!({ "ip": "" })), None);
+    }
+
+    #[test]
+    fn returns_a_non_empty_device_token() {
+        assert_eq!(device_token(&json!({ "token": "abc" })), Some("abc"));
+        assert_eq!(device_token(&json!({ "token": "" })), None);
     }
 
     #[test]
