@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use aes::Aes128;
 use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
@@ -98,9 +101,15 @@ impl Client {
             .connect(self.address)
             .await
             .map_err(|error| network_error(&error))?;
-        let (device_id, timestamp) = self.hello(&socket).await?;
+        let (device_id, device_timestamp, discovered_at) = self.hello(&socket).await?;
         let request = json!({ "id": 1, "method": method, "params": params });
-        let packet = encode_packet(device_id, timestamp.wrapping_add(1), &self.token, &request)?;
+        let elapsed_seconds = u32::try_from(discovered_at.elapsed().as_secs()).unwrap_or(u32::MAX);
+        let packet = encode_packet(
+            device_id,
+            device_timestamp.wrapping_add(elapsed_seconds),
+            &self.token,
+            &request,
+        )?;
         trace!(address = %self.address, method, "sending local miIO request");
         socket
             .send(&packet)
@@ -196,8 +205,8 @@ impl Client {
         .await
     }
 
-    async fn hello(&self, socket: &UdpSocket) -> Result<(u32, u32), MiotError> {
-        let mut hello = [0_u8; HEADER_SIZE];
+    async fn hello(&self, socket: &UdpSocket) -> Result<(u32, u32, Instant), MiotError> {
+        let mut hello = [u8::MAX; HEADER_SIZE];
         hello[0..2].copy_from_slice(&[0x21, 0x31]);
         hello[2..4].copy_from_slice(
             &u16::try_from(HEADER_SIZE)
@@ -222,7 +231,7 @@ impl Client {
                 "local miIO hello response did not include device state",
             ));
         }
-        Ok((device_id, timestamp))
+        Ok((device_id, timestamp, Instant::now()))
     }
 
     async fn receive_packet(&self, socket: &UdpSocket) -> Result<Vec<u8>, MiotError> {
@@ -265,8 +274,9 @@ fn encode_packet(
     token: &[u8; 16],
     payload: &Value,
 ) -> Result<Vec<u8>, MiotError> {
-    let plaintext = serde_json::to_vec(payload)
+    let mut plaintext = serde_json::to_vec(payload)
         .map_err(|_| MiotError::Protocol("could not encode local miIO request"))?;
+    plaintext.push(0);
     let encrypted = encrypt(token, &plaintext);
     let mut packet = vec![0_u8; HEADER_SIZE];
     packet[0..2].copy_from_slice(&[0x21, 0x31]);
@@ -301,7 +311,8 @@ fn decode_packet(packet: &[u8], token: &[u8; 16]) -> Result<Value, MiotError> {
         ));
     }
     let plaintext = decrypt(token, &packet[HEADER_SIZE..])?;
-    serde_json::from_slice(&plaintext)
+    let plaintext = plaintext.strip_suffix(&[0]).unwrap_or(&plaintext);
+    serde_json::from_slice(plaintext)
         .map_err(|_| MiotError::Protocol("could not decode local miIO response"))
 }
 
