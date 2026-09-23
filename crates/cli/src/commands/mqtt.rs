@@ -1,10 +1,13 @@
-use std::{error::Error, fs, net::IpAddr, path::PathBuf};
+use std::{error::Error, fs, net::IpAddr};
 
 use clap::{Args, Subcommand};
 use miot_rs::{MipsClient, MipsClientConfig, MipsTlsConfig};
 use serde::Deserialize;
 
-use crate::credentials::{filename_component, load_oauth_credential, mqtt_certificate_directory};
+use crate::{
+    commands::update_cert::ensure_ca_certificate,
+    credentials::{filename_component, load_oauth_credential, mqtt_certificate_directory},
+};
 
 /// 通过指定 IP 访问中枢网关 MIPS MQTT 服务。
 #[derive(Args)]
@@ -36,9 +39,6 @@ struct MqttGetArguments {
     /// 中枢网关 MIPS MQTT 端口。
     #[arg(long, default_value_t = 8883)]
     port: u16,
-    /// 用于验证网关 TLS 证书的 PEM CA 文件。
-    #[arg(long)]
-    ca: PathBuf,
     /// 证书所属的小米云区域。
     #[arg(long, default_value = "cn")]
     region: String,
@@ -68,7 +68,7 @@ async fn get(arguments: MqttGetArguments) -> Result<(), Box<dyn Error>> {
         return Err("saved MQTT identity did not contain a virtual DID".into());
     }
     let tls = MipsTlsConfig {
-        ca_certificate: arguments.ca,
+        ca_certificate: ensure_ca_certificate(&directory)?,
         client_certificate: directory.join("client.cert"),
         private_key: directory.join("client.key"),
     };

@@ -1,4 +1,8 @@
-use std::{error::Error, fs, path::Path};
+use std::{
+    error::Error,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use clap::Args;
 use miot_rs::{MiHomeApiClient, MqttCertificateClient};
@@ -8,6 +12,30 @@ use tracing::info;
 use crate::credentials::{
     filename_component, load_oauth_credential, mqtt_certificate_directory, write_toml,
 };
+
+pub(crate) const MIHOME_MQTT_CA_CERTIFICATE: &str = concat!(
+    "-----BEGIN CERTIFICATE-----\n",
+    "MIIBazCCAQ+gAwIBAgIEA/UKYDAMBggqhkjOPQQDAgUAMCIxEzARBgNVBAoTCk1p\n",
+    "amlhIFJvb3QxCzAJBgNVBAYTAkNOMCAXDTE2MTEyMzAxMzk0NVoYDzIwNjYxMTEx\n",
+    "MDEzOTQ1WjAiMRMwEQYDVQQKEwpNaWppYSBSb290MQswCQYDVQQGEwJDTjBZMBMG\n",
+    "ByqGSM49AgEGCCqGSM49AwEHA0IABL71iwLa4//4VBqgRI+6xE23xpovqPCxtv96\n",
+    "2VHbZij61/Ag6jmi7oZ/3Xg/3C+whglcwoUEE6KALGJ9vccV9PmjLzAtMAwGA1Ud\n",
+    "EwQFMAMBAf8wHQYDVR0OBBYEFJa3onw5sblmM6n40QmyAGDI5sURMAwGCCqGSM49\n",
+    "BAMCBQADSAAwRQIgchciK9h6tZmfrP8Ka6KziQ4Lv3hKfrHtAZXMHPda4IYCIQCG\n",
+    "az93ggFcbrG9u2wixjx1HKW4DUA5NXZG0wWQTpJTbQ==\n",
+    "-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\n",
+    "MIIBjzCCATWgAwIBAgIBATAKBggqhkjOPQQDAjAiMRMwEQYDVQQKEwpNaWppYSBS\n",
+    "b290MQswCQYDVQQGEwJDTjAgFw0yMjA2MDkxNDE0MThaGA8yMDcyMDUyNzE0MTQx\n",
+    "OFowLDELMAkGA1UEBhMCQ04xHTAbBgNVBAoMFE1JT1QgQ0VOVFJBTCBHQVRFV0FZ\n",
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdYrzbnp/0x/cZLZnuEDXTFf8mhj4\n",
+    "CVpZPwgj9e9Ve5r3K7zvu8Jjj7JF1JjQYvEC6yhp1SzBgglnK4L8xQzdiqNQME4w\n",
+    "HQYDVR0OBBYEFCf9+YBU7pXDs6K6CAQPRhlGJ+cuMB8GA1UdIwQYMBaAFJa3onw5\n",
+    "sblmM6n40QmyAGDI5sURMAwGA1UdEwQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIh\n",
+    "AKUv+c8v98vypkGMTzMwckGjjVqTef8xodsy6PhcSCq+AiA/n9mDs62hAo5zXyJy\n",
+    "Bs1s7mqXPf1XgieoxIvs1MqyiA==\n",
+    "-----END CERTIFICATE-----\n",
+);
 
 #[derive(Args)]
 pub struct UpdateCertArguments {
@@ -48,18 +76,29 @@ impl UpdateCertArguments {
             .await?;
 
         fs::create_dir_all(&directory)?;
+        let ca_path = ensure_ca_certificate(&directory)?;
         let key_path = directory.join("client.key");
         let cert_path = directory.join("client.cert");
         write_secret_file(&key_path, certificate.private_key_pem())?;
         write_secret_file(&cert_path, certificate.certificate_pem())?;
         println!(
-            "MQTT client certificate updated for account {account_id}.\nVirtual DID: {}\nPrivate key: {}\nCertificate: {}",
+            "MQTT client certificate updated for account {account_id}.\nVirtual DID: {}\nCA certificate: {}\nPrivate key: {}\nCertificate: {}",
             identity.virtual_did,
+            ca_path.display(),
             key_path.display(),
             cert_path.display()
         );
         Ok(())
     }
+}
+
+pub(crate) fn ensure_ca_certificate(directory: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    fs::create_dir_all(directory)?;
+    let path = directory.join("mihome_ca.cert");
+    if !path.exists() {
+        fs::write(&path, MIHOME_MQTT_CA_CERTIFICATE)?;
+    }
+    Ok(path)
 }
 
 fn load_or_create_identity(directory: &Path, uid: &str) -> Result<MqttIdentity, Box<dyn Error>> {
@@ -97,7 +136,10 @@ fn write_secret_file(path: &Path, contents: &str) -> Result<(), Box<dyn Error>> 
 
 #[cfg(test)]
 mod tests {
-    use super::{load_or_create_identity, write_secret_file};
+    use super::{
+        MIHOME_MQTT_CA_CERTIFICATE, ensure_ca_certificate, load_or_create_identity,
+        write_secret_file,
+    };
 
     #[test]
     fn writes_private_files() {
@@ -115,5 +157,15 @@ mod tests {
         assert!(first.virtual_did.parse::<u64>().is_ok());
         assert_eq!(first.virtual_did, second.virtual_did);
         assert!(load_or_create_identity(directory.path(), "54321").is_err());
+    }
+
+    #[test]
+    fn writes_the_fixed_mihome_ca_certificate() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = ensure_ca_certificate(directory.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            MIHOME_MQTT_CA_CERTIFICATE
+        );
     }
 }
