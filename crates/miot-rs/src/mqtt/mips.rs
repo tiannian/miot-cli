@@ -22,6 +22,7 @@ use rustls::{
     },
     pki_types::{CertificateDer, ServerName, UnixTime},
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -92,7 +93,7 @@ pub struct MipsAction {
 }
 
 /// 中枢网关发布的属性变更通知。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct MipsProperty {
     pub did: String,
     pub siid: u16,
@@ -101,7 +102,7 @@ pub struct MipsProperty {
 }
 
 /// 中枢网关发布的事件通知。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct MipsEvent {
     pub did: String,
     pub siid: u16,
