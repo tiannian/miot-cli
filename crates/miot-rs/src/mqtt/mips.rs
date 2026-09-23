@@ -177,6 +177,22 @@ impl MipsClient {
         ))
     }
 
+    /// 读取当前中枢网关可代理的设备清单。
+    ///
+    /// # Errors
+    ///
+    /// 请求无法发送、超时或网关返回无效设备清单时返回错误。
+    pub async fn get_device_list(&self) -> Result<Value, MiotError> {
+        let response = self.request("proxy/getDevList", json!({})).await?;
+        response
+            .get("devList")
+            .filter(|value| value.is_object())
+            .cloned()
+            .ok_or(MiotError::Protocol(
+                "MIPS device list response did not include devList",
+            ))
+    }
+
     /// 通过网关的 `set_properties` RPC 写入一个属性。
     ///
     /// # Errors

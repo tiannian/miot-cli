@@ -21,8 +21,26 @@ pub struct MqttCommand {
 enum MqttSubcommand {
     /// 读取一个 `MIoT` 属性。
     Get(MqttGetArguments),
+    /// 列出当前中枢网关可代理的设备。
+    ListDevice(MqttListDeviceArguments),
     /// 执行一个 `MIoT` action。
     Action(MqttActionArguments),
+}
+
+#[derive(Args)]
+struct MqttListDeviceArguments {
+    /// `miot auth login --account` 使用的账号标识。
+    #[arg(long)]
+    account: Option<String>,
+    /// 中枢网关 `MIPS MQTT` 服务的 IPv4 或 IPv6 地址；不会执行 mDNS 发现。
+    #[arg(long)]
+    ip: IpAddr,
+    /// 中枢网关 `MIPS MQTT` 端口。
+    #[arg(long, default_value_t = 8883)]
+    port: u16,
+    /// 证书所属的小米云区域。
+    #[arg(long, default_value = "cn")]
+    region: String,
 }
 
 #[derive(Args)]
@@ -81,6 +99,7 @@ impl MqttCommand {
     pub async fn run(self) -> Result<(), Box<dyn Error>> {
         match self.command {
             MqttSubcommand::Get(arguments) => get(arguments).await,
+            MqttSubcommand::ListDevice(arguments) => list_device(arguments).await,
             MqttSubcommand::Action(arguments) => action(arguments).await,
         }
     }
@@ -98,6 +117,21 @@ async fn get(arguments: MqttGetArguments) -> Result<(), Box<dyn Error>> {
         .get_property(&arguments.did, arguments.siid, arguments.piid)
         .await?;
     println!("{value}");
+    Ok(())
+}
+
+async fn list_device(arguments: MqttListDeviceArguments) -> Result<(), Box<dyn Error>> {
+    let client = connect(
+        arguments.account.as_deref(),
+        arguments.ip,
+        arguments.port,
+        &arguments.region,
+    )
+    .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&client.get_device_list().await?)?
+    );
     Ok(())
 }
 
