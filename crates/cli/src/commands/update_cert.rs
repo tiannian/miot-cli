@@ -45,9 +45,9 @@ pub struct UpdateCertArguments {
     /// Xiaomi cloud region.
     #[arg(long, default_value = "cn")]
     region: String,
-    /// Xiaomi account UID embedded in the client certificate subject.
+    /// 首次创建 MQTT 身份时写入客户端证书 subject 的小米账号 UID。
     #[arg(long)]
-    uid: String,
+    uid: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -68,8 +68,8 @@ impl UpdateCertArguments {
         let directory = mqtt_certificate_directory()?
             .join(filename_component(&account_id))
             .join(filename_component(&self.region));
-        let identity = load_or_create_identity(&directory, &self.uid)?;
-        info!(account = %account_id, uid = %self.uid, virtual_did = %identity.virtual_did, region = %self.region, "requesting MQTT client certificate");
+        let identity = load_or_create_identity(&directory, self.uid.as_deref())?;
+        info!(account = %account_id, uid = %identity.uid, virtual_did = %identity.virtual_did, region = %self.region, "requesting MQTT client certificate");
         let api = MiHomeApiClient::new(&self.region, credential)?;
         let certificate = MqttCertificateClient::new(api)
             .request_client_certificate(&identity.uid, &identity.virtual_did)
@@ -101,17 +101,21 @@ pub(crate) fn ensure_ca_certificate(directory: &Path) -> Result<PathBuf, Box<dyn
     Ok(path)
 }
 
-fn load_or_create_identity(directory: &Path, uid: &str) -> Result<MqttIdentity, Box<dyn Error>> {
-    if uid.trim().is_empty() {
-        return Err("uid must not be empty".into());
-    }
+fn load_or_create_identity(
+    directory: &Path,
+    requested_uid: Option<&str>,
+) -> Result<MqttIdentity, Box<dyn Error>> {
     let identity_path = directory.join("identity.toml");
     if identity_path.exists() {
         let identity: MqttIdentity = toml::from_str(&fs::read_to_string(identity_path)?)?;
-        if identity.uid != uid {
+        if requested_uid.is_some_and(|uid| identity.uid != uid) {
             return Err("the saved MQTT identity belongs to a different uid".into());
         }
         return Ok(identity);
+    }
+    let uid = requested_uid.ok_or("--uid is required when creating the first MQTT identity")?;
+    if uid.trim().is_empty() {
+        return Err("uid must not be empty".into());
     }
     let mut bytes = [0_u8; 8];
     getrandom::fill(&mut bytes)
@@ -152,11 +156,12 @@ mod tests {
     #[test]
     fn creates_and_reuses_a_virtual_did() {
         let directory = tempfile::tempdir().unwrap();
-        let first = load_or_create_identity(directory.path(), "12345").unwrap();
-        let second = load_or_create_identity(directory.path(), "12345").unwrap();
+        assert!(load_or_create_identity(directory.path(), None).is_err());
+        let first = load_or_create_identity(directory.path(), Some("12345")).unwrap();
+        let second = load_or_create_identity(directory.path(), None).unwrap();
         assert!(first.virtual_did.parse::<u64>().is_ok());
         assert_eq!(first.virtual_did, second.virtual_did);
-        assert!(load_or_create_identity(directory.path(), "54321").is_err());
+        assert!(load_or_create_identity(directory.path(), Some("54321")).is_err());
     }
 
     #[test]
