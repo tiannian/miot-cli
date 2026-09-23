@@ -1,12 +1,27 @@
 //! 小米中枢网关 MIPS 协议客户端。
 
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use std::{
+    collections::HashMap,
+    io::{BufReader, Cursor},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use rumqttc::v5::{
     AsyncClient, Event, EventLoop, MqttOptions,
     mqttbytes::{QoS, v5::Packet},
 };
 use rumqttc::{TlsConfiguration, Transport};
+use rustls::{
+    CertificateError, ClientConfig, DigitallySignedStruct, Error as RustlsError, RootCertStore,
+    SignatureScheme,
+    client::{
+        WebPkiServerVerifier,
+        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    },
+    pki_types::{CertificateDer, ServerName, UnixTime},
+};
 use serde_json::{Value, json};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -119,11 +134,9 @@ impl MipsClient {
         let mut options = MqttOptions::new(&config.client_id, &config.host, config.port);
         options.set_keep_alive(Duration::from_secs(30));
         options.set_clean_start(true);
-        options.set_transport(Transport::tls_with_config(TlsConfiguration::Simple {
-            ca,
-            alpn: None,
-            client_auth: Some((certificate, key)),
-        }));
+        options.set_transport(Transport::tls_with_config(TlsConfiguration::Rustls(
+            tls_config(ca, certificate, key)?,
+        )));
 
         let (mqtt, event_loop) = AsyncClient::new(options, MQTT_REQUEST_QUEUE_CAPACITY);
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
@@ -550,6 +563,109 @@ fn read_pem(path: &PathBuf, name: &'static str) -> Result<Vec<u8>, MiotError> {
         )));
     }
     Ok(bytes)
+}
+
+fn tls_config(
+    ca_pem: Vec<u8>,
+    certificate_pem: Vec<u8>,
+    private_key_pem: Vec<u8>,
+) -> Result<Arc<ClientConfig>, MiotError> {
+    let mut roots = RootCertStore::empty();
+    let ca_certificates = rustls_pemfile::certs(&mut BufReader::new(Cursor::new(ca_pem)))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            MiotError::Mqtt(format!("could not parse MIPS CA certificate: {error}"))
+        })?;
+    roots.add_parsable_certificates(ca_certificates);
+    if roots.is_empty() {
+        return Err(MiotError::Mqtt(
+            "MIPS CA file contained no certificates".to_owned(),
+        ));
+    }
+
+    let client_certificates =
+        rustls_pemfile::certs(&mut BufReader::new(Cursor::new(certificate_pem)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| {
+                MiotError::Mqtt(format!("could not parse MIPS client certificate: {error}"))
+            })?;
+    if client_certificates.is_empty() {
+        return Err(MiotError::Mqtt(
+            "MIPS client certificate file is empty".to_owned(),
+        ));
+    }
+    let private_key =
+        rustls_pemfile::private_key(&mut BufReader::new(Cursor::new(private_key_pem)))
+            .map_err(|error| MiotError::Mqtt(format!("could not parse MIPS private key: {error}")))?
+            .ok_or_else(|| {
+                MiotError::Mqtt("MIPS private key file contained no private key".to_owned())
+            })?;
+    let verifier = WebPkiServerVerifier::builder(Arc::new(roots))
+        .build()
+        .map_err(|error| MiotError::Mqtt(format!("could not build MIPS CA verifier: {error}")))?;
+    let config = ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(GatewayServerVerifier { verifier }))
+        .with_client_auth_cert(client_certificates, private_key)
+        .map_err(|error| {
+            MiotError::Mqtt(format!(
+                "could not configure MIPS client certificate: {error}"
+            ))
+        })?;
+    Ok(Arc::new(config))
+}
+
+/// Keeps certificate-chain and signature validation, but permits a gateway
+/// certificate whose DNS name does not match the direct local IP address.
+#[derive(Debug)]
+struct GatewayServerVerifier {
+    verifier: Arc<WebPkiServerVerifier>,
+}
+
+impl ServerCertVerifier for GatewayServerVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, RustlsError> {
+        match self.verifier.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Err(RustlsError::InvalidCertificate(CertificateError::NotValidForName)) => {
+                Ok(ServerCertVerified::assertion())
+            }
+            result => result,
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        self.verifier.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        self.verifier.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.verifier.supported_verify_schemes()
+    }
 }
 
 struct MipsMessage {

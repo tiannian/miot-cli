@@ -838,6 +838,8 @@ dependencies = [
  "rcgen",
  "reqwest",
  "rumqttc",
+ "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "sha1",
