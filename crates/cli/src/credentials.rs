@@ -169,8 +169,7 @@ pub fn update_state_directory(account_id: &str, api: &str) -> Result<PathBuf, Bo
 }
 
 pub fn mqtt_certificate_directory() -> Result<PathBuf, Box<dyn Error>> {
-    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".local/.miot.rs/certs"))
+    Ok(state_directory()?.join("certs"))
 }
 
 pub fn credential_path(account_id: &str) -> Result<PathBuf, Box<dyn Error>> {
