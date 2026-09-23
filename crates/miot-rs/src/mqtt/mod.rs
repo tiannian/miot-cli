@@ -6,6 +6,10 @@
 //! callers should store the private key and certificate using their platform's
 //! secret storage.
 
+mod mips;
+
+pub use mips::{MipsAction, MipsClient, MipsClientConfig, MipsEvent, MipsProperty, MipsTlsConfig};
+
 use rcgen::{CertificateParams, DnType, KeyPair, PKCS_ED25519};
 use sha1::{Digest, Sha1};
 

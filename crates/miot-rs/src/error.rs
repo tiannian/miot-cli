@@ -42,6 +42,8 @@ pub enum MiotError {
     LocalDevice(String),
     #[error("certificate operation failed: {0}")]
     Certificate(String),
+    #[error("MQTT operation failed: {0}")]
+    Mqtt(String),
     #[error("{0}")]
     Protocol(&'static str),
     #[error("{0}")]
