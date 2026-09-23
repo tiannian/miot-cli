@@ -6,7 +6,7 @@ use std::error::Error;
 use clap::{Parser, Subcommand};
 use commands::{
     account::AccountCommand, auth::AuthCommand, device::DeviceCommand, home::HomeCommand,
-    lan::LanCommand, update::UpdateArguments, update_cert::UpdateCertArguments,
+    lan::LanCommand, mqtt::MqttCommand, update::UpdateArguments, update_cert::UpdateCertArguments,
 };
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
@@ -28,6 +28,8 @@ enum Command {
     /// List cached homes and their rooms.
     Home(HomeCommand),
     Lan(Box<LanCommand>),
+    /// 通过指定 IP 连接中枢网关 MIPS MQTT 服务。
+    Mqtt(Box<MqttCommand>),
     Update(UpdateArguments),
     /// Request a central-gateway MQTT client certificate.
     UpdateCert(UpdateCertArguments),
@@ -68,6 +70,10 @@ async fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Some(Command::Lan(command)) => {
             info!(command = "lan", "running command");
+            command.run().await
+        }
+        Some(Command::Mqtt(command)) => {
+            info!(command = "mqtt", "running command");
             command.run().await
         }
         Some(Command::Update(arguments)) => {
